@@ -275,8 +275,8 @@ grant_xray_config_access() {
     fi
   fi
   chgrp "$XRAY_ACCESS_GROUP" "$XRAY_CONFIG_DIR" "$XRAY_CONFIG_PATH"
-  chmod 0750 "$XRAY_CONFIG_DIR"
-  chmod 0640 "$XRAY_CONFIG_PATH"
+  chmod 0755 "$XRAY_CONFIG_DIR"
+  chmod 0644 "$XRAY_CONFIG_PATH"
   if command -v runuser >/dev/null 2>&1 && ! runuser -u "$RUN_USER" -- test -r "$XRAY_CONFIG_PATH"; then
     echo "Runtime user $RUN_USER still cannot read Xray config: $XRAY_CONFIG_PATH" >&2
     exit 1

@@ -38,7 +38,7 @@ bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/instal
 bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update
 ```
 
-`install` 在已安装机器上重复执行也会覆盖程序为最新版；`update` 是语义更明确的同类操作。两者默认都会检查并补齐 Xray Stats/API、所有 client policy level 和 Xray 配置读取权限，然后重启服务。只更新 reporter 可加 `--no-patch-xray`。程序不会创建无人值守的定时自动更新任务。
+`install` 在已安装机器上重复执行也会覆盖程序为最新版；`update` 是语义更明确的同类操作。两者默认都会检查并补齐 Xray Stats/API、所有 client policy level 和 Xray 配置读取权限，然后重启服务。Xray 配置目录规范为 `755`、配置文件规范为 `644`，普通用户可读但不可写。只更新 reporter 可加 `--no-patch-xray`。程序不会创建无人值守的定时自动更新任务。
 
 远程卸载 reporter 和 systemd 服务（保留配置与历史状态）：
 
@@ -236,7 +236,7 @@ Update while preserving the existing configuration and traffic state:
 bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update
 ```
 
-Running `install` again also refreshes the application. `update` is the explicit equivalent. Both verify Xray Stats/API, client policy levels, and reporter read access by default; add `--no-patch-xray` to refresh only the reporter. No unattended periodic update timer is installed.
+Running `install` again also refreshes the application. `update` is the explicit equivalent. Both verify Xray Stats/API, client policy levels, and reporter read access by default. The Xray configuration directory is normalized to mode `755` and the configuration file to `644`, making them readable but not writable by ordinary users. Add `--no-patch-xray` to refresh only the reporter. No unattended periodic update timer is installed.
 
 ### Configuration
 
