@@ -38,7 +38,7 @@ bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/instal
 bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update
 ```
 
-`install` 在已安装机器上重复执行也会覆盖程序为最新版；`update` 是语义更明确的同类操作。两者默认都会检查并补齐 Xray Stats/API、所有 client policy level 和 Xray 配置读取权限，然后重启服务。Xray 配置目录规范为 `755`、配置文件规范为 `644`，普通用户可读但不可写。只更新 reporter 可加 `--no-patch-xray`。程序不会创建无人值守的定时自动更新任务。
+`install` 在已安装机器上重复执行也会覆盖程序为最新版；`update` 是语义更明确的同类操作。两者默认都会检查并补齐 Xray Stats/API、所有 client policy level 和配置读取权限，然后重启服务。Xray 配置和 `/etc/xray-sinffing` 目录规范为 `755`，JSON 配置文件规范为 `644`，普通用户可读但不可写。只更新 reporter 可加 `--no-patch-xray`。程序不会创建无人值守的定时自动更新任务。
 
 如果旧报告曾在“Xray 配置不可读”或“某个 policy level 未启用 user Stats”期间累计，旧状态缺少一侧计数器，无法事后还原。使用下面的命令可在更新成功后备份旧状态，并从新的 Xray 计数器基线开始：
 
@@ -249,7 +249,7 @@ bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/instal
 bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ uninstall
 ```
 
-The installer creates the service user, installs the reporter, keeps a root-owned configuration readable by the service group, and validates any Xray configuration patch with Xray's own test command. Uninstall removes the application and service but keeps `/etc/xray-sinffing` and `/var/lib/xray-sinffing`.
+The installer creates the service user, installs the reporter, keeps `/etc/xray-sinffing` at mode `755` and its JSON configuration at mode `644`, and validates any Xray configuration patch with Xray's own test command. Uninstall removes the application and service but keeps `/etc/xray-sinffing` and `/var/lib/xray-sinffing`.
 
 Update while preserving the existing configuration and traffic state:
 
@@ -257,7 +257,7 @@ Update while preserving the existing configuration and traffic state:
 bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update
 ```
 
-Running `install` again also refreshes the application. `update` is the explicit equivalent. Both verify Xray Stats/API, client policy levels, and reporter read access by default. The Xray configuration directory is normalized to mode `755` and the configuration file to `644`, making them readable but not writable by ordinary users. Add `--no-patch-xray` to refresh only the reporter. No unattended periodic update timer is installed.
+Running `install` again also refreshes the application. `update` is the explicit equivalent. Both verify Xray Stats/API, client policy levels, and reporter read access by default. Xray configuration directories and `/etc/xray-sinffing` are normalized to mode `755`; their JSON configuration files use mode `644`, making them readable but not writable by ordinary users. Add `--no-patch-xray` to refresh only the reporter. No unattended periodic update timer is installed.
 
 If state was accumulated while the Xray configuration was unreadable or a client policy level lacked user Stats, the missing counter dimension cannot be reconstructed. Use `update --reset-state` to back up the old state and establish a clean baseline. Backups are kept as `/var/lib/xray-sinffing/traffic-state.json.bak-reset-TIMESTAMP`.
 

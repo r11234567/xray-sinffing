@@ -211,7 +211,7 @@ RUN_GROUP="$(id -gn "$RUN_USER")"
 
 install -d -m 0755 "$APP_DIR" "$APP_DIR/bin" "$APP_DIR/config" "$APP_DIR/systemd"
 install -d -m 0750 -o "$RUN_USER" -g "$RUN_GROUP" "$STATE_DIR"
-install -d -m 0750 -o root -g "$RUN_GROUP" "$ETC_DIR"
+install -d -m 0755 -o root -g "$RUN_GROUP" "$ETC_DIR"
 
 install -m 0755 "$SCRIPT_DIR/bin/xray-sinffing.js" "$APP_DIR/bin/xray-sinffing.js"
 install -m 0755 "$SCRIPT_DIR/bin/patch-xray-config.js" "$APP_DIR/bin/patch-xray-config.js"
@@ -220,10 +220,10 @@ install -m 0644 "$SCRIPT_DIR/README.md" "$APP_DIR/README.md"
 install -m 0644 "$SCRIPT_DIR/config/config.example.json" "$APP_DIR/config/config.example.json"
 
 if [ ! -f "$CONFIG_FILE" ]; then
-  install -m 0640 -o root -g "$RUN_GROUP" "$SCRIPT_DIR/config/config.example.json" "$CONFIG_FILE"
+  install -m 0644 -o root -g "$RUN_GROUP" "$SCRIPT_DIR/config/config.example.json" "$CONFIG_FILE"
 else
   chown root:"$RUN_GROUP" "$CONFIG_FILE"
-  chmod 0640 "$CONFIG_FILE"
+  chmod 0644 "$CONFIG_FILE"
 fi
 
 CONFIG_FILE="$CONFIG_FILE" \
@@ -272,7 +272,7 @@ if (process.env.TRACK_OUTBOUNDS) {
     return { tag: part.slice(0, idx).trim(), name: part.slice(idx + 1).trim() };
   }).filter((x) => x.tag);
 }
-fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o640 });
+fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o644 });
 NODE
 
 sed \
