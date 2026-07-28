@@ -15,6 +15,7 @@ XRAY_API_SERVER="$(printenv XRAY_API_SERVER || true)"
 ACTION="install"
 PATCH_XRAY=1
 START_SERVICE=1
+RESET_STATE=0
 
 if [ -z "$RUN_USER" ]; then RUN_USER="xraystat"; fi
 if [ -z "$XRAY_BIN" ]; then XRAY_BIN="/usr/local/bin/xray"; fi
@@ -24,7 +25,7 @@ usage() {
   printf '%s\n' \
     "Usage:" \
     "  sudo ./install.sh install [--no-patch-xray] [--no-start]" \
-    "  sudo ./install.sh update [--no-patch-xray] [--no-start]" \
+    "  sudo ./install.sh update [--no-patch-xray] [--no-start] [--reset-state]" \
     "  sudo ./install.sh uninstall" \
     "  bash -c \"\$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)\" @ install" \
     "  bash -c \"\$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)\" @ update" \
@@ -39,6 +40,7 @@ usage() {
     "  --patch-xray        Patch Xray config (default for install)" \
     "  --no-patch-xray     Install without changing Xray config" \
     "  --no-start          Install without starting the reporter" \
+    "  --reset-state       Back up incompatible traffic state and start from a new baseline" \
     "" \
     "Environment variables:" \
     "  TG_BOT_TOKEN       Telegram bot token" \
@@ -123,6 +125,9 @@ while [ "$#" -gt 0 ]; do
       ;;
     --no-start)
       START_SERVICE=0
+      ;;
+    --reset-state)
+      RESET_STATE=1
       ;;
     -h|--help)
       usage
@@ -326,6 +331,15 @@ grant_xray_config_access() {
 }
 
 grant_xray_config_access
+
+if [ "$RESET_STATE" -eq 1 ]; then
+  systemctl stop "$APP_NAME.service" >/dev/null 2>&1 || true
+  if [ -f "$STATE_DIR/traffic-state.json" ]; then
+    STATE_BACKUP="$STATE_DIR/traffic-state.json.bak-reset-$(date '+%Y%m%d-%H%M%S')"
+    mv "$STATE_DIR/traffic-state.json" "$STATE_BACKUP"
+    echo "Traffic state backup: $STATE_BACKUP"
+  fi
+fi
 
 systemctl daemon-reload
 systemctl enable "$APP_NAME.service" >/dev/null

@@ -40,6 +40,14 @@ bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/instal
 
 `install` 在已安装机器上重复执行也会覆盖程序为最新版；`update` 是语义更明确的同类操作。两者默认都会检查并补齐 Xray Stats/API、所有 client policy level 和 Xray 配置读取权限，然后重启服务。Xray 配置目录规范为 `755`、配置文件规范为 `644`，普通用户可读但不可写。只更新 reporter 可加 `--no-patch-xray`。程序不会创建无人值守的定时自动更新任务。
 
+如果旧报告曾在“Xray 配置不可读”或“某个 policy level 未启用 user Stats”期间累计，旧状态缺少一侧计数器，无法事后还原。使用下面的命令可在更新成功后备份旧状态，并从新的 Xray 计数器基线开始：
+
+```bash
+bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update --reset-state
+```
+
+旧文件保存在 `/var/lib/xray-sinffing/traffic-state.json.bak-reset-时间戳`，不会直接删除。
+
 远程卸载 reporter 和 systemd 服务（保留配置与历史状态）：
 
 ```bash
@@ -237,6 +245,8 @@ bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/instal
 ```
 
 Running `install` again also refreshes the application. `update` is the explicit equivalent. Both verify Xray Stats/API, client policy levels, and reporter read access by default. The Xray configuration directory is normalized to mode `755` and the configuration file to `644`, making them readable but not writable by ordinary users. Add `--no-patch-xray` to refresh only the reporter. No unattended periodic update timer is installed.
+
+If state was accumulated while the Xray configuration was unreadable or a client policy level lacked user Stats, the missing counter dimension cannot be reconstructed. Use `update --reset-state` to back up the old state and establish a clean baseline. Backups are kept as `/var/lib/xray-sinffing/traffic-state.json.bak-reset-TIMESTAMP`.
 
 ### Configuration
 
