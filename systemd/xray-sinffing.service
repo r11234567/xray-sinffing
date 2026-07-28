@@ -1,0 +1,23 @@
+[Unit]
+Description=Xray Sinffing traffic reporter
+After=network-online.target xray.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xraystat
+Group=xraystat
+ExecStart=/usr/bin/env node /opt/xray-sinffing/bin/xray-sinffing.js --config /etc/xray-sinffing/config.json
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/usr/local/bin /usr/local/etc/xray /etc/xray
+ReadWritePaths=/var/lib/xray-sinffing
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,54 @@
+{
+  "xray": {
+    "binary": "/usr/local/bin/xray",
+    "apiServer": "127.0.0.1:10085",
+    "configPath": "/usr/local/etc/xray/config.json"
+  },
+  "runtime": {
+    "statePath": "/var/lib/xray-sinffing/traffic-state.json",
+    "timezone": "Asia/Shanghai",
+    "sampleIntervalSeconds": 300,
+    "initialSnapshotOnly": true,
+    "retentionDays": 120
+  },
+  "telegram": {
+    "botToken": "",
+    "chatId": "",
+    "topicId": null
+  },
+  "komari": {
+    "probeUrl": "",
+    "brandName": "Xray Traffic Reporter",
+    "nodeName": ""
+  },
+  "track": {
+    "outbounds": [],
+    "userAliases": {},
+    "emailOutbounds": {},
+    "includeUntrackedOutbounds": false,
+    "forceShowOutboundNames": false,
+    "excludeOutbounds": [
+      "api",
+      "block"
+    ]
+  },
+  "reports": {
+    "daily": {
+      "enabled": true,
+      "time": "00:05",
+      "reportPreviousPeriod": true
+    },
+    "weekly": {
+      "enabled": true,
+      "weekday": 1,
+      "time": "00:10",
+      "reportPreviousPeriod": true
+    },
+    "monthly": {
+      "enabled": true,
+      "day": 1,
+      "time": "00:15",
+      "reportPreviousPeriod": true
+    }
+  }
+}
