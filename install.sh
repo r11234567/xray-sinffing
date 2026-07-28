@@ -266,9 +266,17 @@ grant_xray_config_access() {
     exit 1
   fi
   XRAY_CONFIG_DIR="$(dirname -- "$XRAY_CONFIG_PATH")"
-  chgrp "$RUN_GROUP" "$XRAY_CONFIG_DIR" "$XRAY_CONFIG_PATH"
-  chmod g+rx "$XRAY_CONFIG_DIR"
-  chmod g+r "$XRAY_CONFIG_PATH"
+  XRAY_SERVICE_USER="$(systemctl show xray.service -p User --value 2>/dev/null || true)"
+  XRAY_ACCESS_GROUP="$RUN_GROUP"
+  if [ -n "$XRAY_SERVICE_USER" ] && [ "$XRAY_SERVICE_USER" != "root" ] && id "$XRAY_SERVICE_USER" >/dev/null 2>&1; then
+    XRAY_ACCESS_GROUP="$(id -gn "$XRAY_SERVICE_USER")"
+    if ! id -nG "$RUN_USER" | tr ' ' '\n' | grep -Fxq "$XRAY_ACCESS_GROUP"; then
+      usermod -a -G "$XRAY_ACCESS_GROUP" "$RUN_USER"
+    fi
+  fi
+  chgrp "$XRAY_ACCESS_GROUP" "$XRAY_CONFIG_DIR" "$XRAY_CONFIG_PATH"
+  chmod 0750 "$XRAY_CONFIG_DIR"
+  chmod 0640 "$XRAY_CONFIG_PATH"
   if command -v runuser >/dev/null 2>&1 && ! runuser -u "$RUN_USER" -- test -r "$XRAY_CONFIG_PATH"; then
     echo "Runtime user $RUN_USER still cannot read Xray config: $XRAY_CONFIG_PATH" >&2
     exit 1
