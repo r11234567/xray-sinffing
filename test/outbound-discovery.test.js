@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   discoverEffectiveOutbounds,
+  effectiveInboundTag,
   normalizeOutbounds,
   rebuildBucketAttribution,
   routeForInbound,
@@ -39,6 +40,11 @@ test('automatic discovery keeps effective routes and drops internal or unused ou
   assert.deepEqual(discoverEffectiveOutbounds({ track: baseTrack }, xray), [
     { tag: 'to-b', name: 'to-b' }
   ]);
+});
+
+test('untagged inbounds still receive an internal identity for user discovery', () => {
+  assert.equal(effectiveInboundTag({ protocol: 'vless' }, 0), '__untagged_inbound_0');
+  assert.equal(effectiveInboundTag({ tag: 'client-in' }, 4), 'client-in');
 });
 
 test('balancer selectors add matching configured outbounds only', () => {

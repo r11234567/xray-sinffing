@@ -466,6 +466,11 @@ function ruleInboundTags(rule) {
   return asArray(rule.inboundTag).map(String);
 }
 
+function effectiveInboundTag(inbound, index) {
+  if (inbound && inbound.tag) return String(inbound.tag);
+  return '__untagged_inbound_' + String(index);
+}
+
 function firstDefaultOutbound(xrayCfg) {
   const outbounds = asArray(xrayCfg.outbounds);
   for (const out of outbounds) {
@@ -522,9 +527,10 @@ function buildXrayModel(cfg) {
   }
 
   const inboundRoutes = {};
-  for (const inbound of asArray(xrayCfg.inbounds)) {
-    if (!inbound || !inbound.tag) continue;
-    const tag = String(inbound.tag);
+  for (let index = 0; index < asArray(xrayCfg.inbounds).length; index += 1) {
+    const inbound = asArray(xrayCfg.inbounds)[index];
+    if (!inbound) continue;
+    const tag = effectiveInboundTag(inbound, index);
     if (tag === 'api') continue;
     inboundRoutes[tag] = routeForInbound(tag, xrayCfg, warnings);
     const clients = inboundClientRecords(inbound);
@@ -556,7 +562,7 @@ function buildXrayModel(cfg) {
       continue;
     }
     const candidates = new Set(records.map((r) => r.outboundTag).filter(Boolean));
-    if (records.length > 1) warnings.push('重复 email ' + email + ' 出现在多个 inbound；Xray 用户统计会按 email 合并');
+    if (records.length > 1 && candidates.size !== 1) warnings.push('重复 email ' + email + ' 出现在多个 inbound 且出口归属不同；Xray 用户统计会按 email 合并');
     if (candidates.size === 1) attribution[email] = Array.from(candidates)[0];
     else {
       attribution[email] = null;
@@ -1148,6 +1154,7 @@ module.exports = {
   buildXrayModel,
   discoverEffectiveOutbounds,
   normalizeOutbounds,
+  effectiveInboundTag,
   rebuildBucketAttribution,
   routeForInbound,
   renderTrafficReport
