@@ -415,7 +415,18 @@ function asArray(v) {
 function readXrayConfig(cfg) {
   if (!cfg.xray.configPath) return null;
   try {
-    return readJson(cfg.xray.configPath, null);
+    const source = cfg.xray.configPath;
+    const sourceStat = fs.statSync(source);
+    const sourceFlag = sourceStat.isDirectory() ? '-confdir' : '-config';
+    const result = spawnSync(cfg.xray.binary || 'xray', ['run', '-dump', sourceFlag, source], {
+      encoding: 'utf8',
+      maxBuffer: 32 * 1024 * 1024
+    });
+    if (result.error) throw result.error;
+    if (result.status !== 0) {
+      throw new Error(((result.stderr || '') + (result.stdout || '')).trim() || 'xray config dump failed');
+    }
+    return JSON.parse(result.stdout);
   } catch (error) {
     return { _readError: error.message };
   }

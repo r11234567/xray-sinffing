@@ -124,7 +124,7 @@ sudo systemctl restart xray-sinffing.service
 
 - `binary`：Xray 可执行文件路径。
 - `apiServer`：Xray Stats API 地址，必须与 Xray 的 `api` 入站和 `stats` 配置一致。
-- `configPath`：用于读取 client email、inbound、outbound 和 routing 的 Xray JSON 配置路径。
+- `configPath`：Xray 实际加载的单个 JSON 文件或 `-confdir` 目录。安装器会从 `xray.service` 的 `ExecStart` 自动识别；reporter 使用官方 `xray run -dump` 读取合并后的有效配置，从中发现 client email、inbound、outbound 和 routing。
 
 #### `runtime`
 
@@ -246,7 +246,7 @@ Edit `/etc/xray-sinffing/config.json`, using the complete JSON example in the Ch
 
 - `binary`: path to the Xray executable.
 - `apiServer`: Xray Stats API listen address.
-- `configPath`: Xray JSON file used to discover clients, inbounds, outbounds, and routing.
+- `configPath`: the JSON file or `-confdir` directory actually loaded by Xray. The installer detects it from `xray.service` `ExecStart`, and the reporter uses official `xray run -dump` output to inspect the merged clients, inbounds, outbounds, and routing.
 
 `runtime` fields:
 

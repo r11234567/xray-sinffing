@@ -79,6 +79,15 @@ function readJson(file) {
   return JSON.parse(stripJsonComments(fs.readFileSync(file, 'utf8')));
 }
 
+function dumpConfig(source, xrayBin) {
+  const stat = fs.statSync(source);
+  const flag = stat.isDirectory() ? '-confdir' : '-config';
+  const result = spawnSync(xrayBin, ['run', '-dump', flag, source], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(((result.stderr || '') + (result.stdout || '')).trim() || 'xray config dump failed');
+  return JSON.parse(result.stdout);
+}
+
 function ensureObject(parent, key) {
   if (!parent[key] || typeof parent[key] !== 'object' || Array.isArray(parent[key])) parent[key] = {};
   return parent[key];
@@ -166,9 +175,17 @@ function main() {
     return;
   }
   const cfgPath = path.resolve(args.config);
-  const cfg = patchConfig(readJson(cfgPath), args.apiServer);
+  const sourceStat = fs.statSync(cfgPath);
+  const sourceIsDir = sourceStat.isDirectory();
+  const cfg = patchConfig(sourceIsDir ? dumpConfig(cfgPath, args.xrayBin) : readJson(cfgPath), args.apiServer);
   const warnings = inspectClients(cfg);
-  const formatted = JSON.stringify(cfg, null, 2) + '\n';
+  const fragmentPath = path.join(cfgPath, '99-xray-sinffing.json');
+  const outputConfig = sourceIsDir ? {
+    api: cfg.api,
+    stats: cfg.stats,
+    policy: cfg.policy
+  } : cfg;
+  const formatted = JSON.stringify(outputConfig, null, 2) + '\n';
 
   if (!args.apply) {
     process.stdout.write(formatted);
@@ -177,16 +194,21 @@ function main() {
     return;
   }
 
-  const backup = cfgPath + '.bak-xray-sinffing-' + timestamp();
-  fs.copyFileSync(cfgPath, backup, fs.constants.COPYFILE_EXCL);
-  fs.writeFileSync(cfgPath, formatted, { mode: 0o644 });
-  console.log('patched: ' + cfgPath);
-  console.log('backup:  ' + backup);
+  const targetPath = sourceIsDir ? fragmentPath : cfgPath;
+  let backup = null;
+  if (fs.existsSync(targetPath)) {
+    backup = targetPath + '.bak-xray-sinffing-' + timestamp();
+    fs.copyFileSync(targetPath, backup, fs.constants.COPYFILE_EXCL);
+  }
+  fs.writeFileSync(targetPath, formatted, { mode: 0o644 });
+  console.log('patched: ' + targetPath);
+  if (backup) console.log('backup:  ' + backup);
   if (warnings.missing.length) console.warn('WARN missing client email: ' + warnings.missing.join(', '));
   if (warnings.duplicates.length) console.warn('WARN duplicate client email; user-by-outbound attribution may be ambiguous: ' + warnings.duplicates.join('; '));
 
   if (args.test) {
-    const result = spawnSync(args.xrayBin, ['run', '-test', '-config', cfgPath], { encoding: 'utf8' });
+    const testArgs = sourceIsDir ? ['run', '-test', '-confdir', cfgPath] : ['run', '-test', '-config', cfgPath];
+    const result = spawnSync(args.xrayBin, testArgs, { encoding: 'utf8' });
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
     if (result.status !== 0) process.exit(result.status || 1);

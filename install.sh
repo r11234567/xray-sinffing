@@ -18,7 +18,6 @@ START_SERVICE=1
 
 if [ -z "$RUN_USER" ]; then RUN_USER="xraystat"; fi
 if [ -z "$XRAY_BIN" ]; then XRAY_BIN="/usr/local/bin/xray"; fi
-if [ -z "$XRAY_CONFIG_PATH" ]; then XRAY_CONFIG_PATH="/usr/local/etc/xray/config.json"; fi
 if [ -z "$XRAY_API_SERVER" ]; then XRAY_API_SERVER="127.0.0.1:10085"; fi
 
 usage() {
@@ -169,6 +168,37 @@ if ! command -v systemctl >/dev/null 2>&1; then
   exit 1
 fi
 
+detect_xray_config_path() {
+  local exec_start detected
+  exec_start="$(systemctl show xray.service -p ExecStart --value 2>/dev/null || true)"
+  detected="$(XRAY_EXEC_START="$exec_start" node <<'NODE'
+const text = process.env.XRAY_EXEC_START || '';
+const argvMatch = /argv\[\]=([^;}]*)/.exec(text);
+const argv = (argvMatch ? argvMatch[1] : text).trim().split(/\s+/).filter(Boolean);
+for (let i = 0; i < argv.length; i += 1) {
+  const token = argv[i];
+  const equals = /^-(?:config|c|confdir)=(.+)$/.exec(token);
+  if (equals) {
+    process.stdout.write(equals[1]);
+    process.exit(0);
+  }
+  if (['-config', '-c', '-confdir'].includes(token) && argv[i + 1]) {
+    process.stdout.write(argv[i + 1]);
+    process.exit(0);
+  }
+}
+NODE
+)"
+  if [ -n "$detected" ]; then printf '%s' "$detected"; fi
+}
+
+if [ -z "$XRAY_CONFIG_PATH" ]; then
+  XRAY_CONFIG_PATH="$(detect_xray_config_path)"
+fi
+if [ -z "$XRAY_CONFIG_PATH" ]; then
+  XRAY_CONFIG_PATH="/usr/local/etc/xray/config.json"
+fi
+
 if ! id "$RUN_USER" >/dev/null 2>&1; then
   useradd --system --home-dir "$STATE_DIR" --shell /usr/sbin/nologin "$RUN_USER"
 fi
@@ -261,11 +291,15 @@ if [ "$PATCH_XRAY" -eq 1 ]; then
 fi
 
 grant_xray_config_access() {
-  if [ ! -f "$XRAY_CONFIG_PATH" ]; then
+  if [ ! -e "$XRAY_CONFIG_PATH" ]; then
     echo "Xray config was not found: $XRAY_CONFIG_PATH" >&2
     exit 1
   fi
-  XRAY_CONFIG_DIR="$(dirname -- "$XRAY_CONFIG_PATH")"
+  if [ -d "$XRAY_CONFIG_PATH" ]; then
+    XRAY_CONFIG_DIR="$XRAY_CONFIG_PATH"
+  else
+    XRAY_CONFIG_DIR="$(dirname -- "$XRAY_CONFIG_PATH")"
+  fi
   XRAY_SERVICE_USER="$(systemctl show xray.service -p User --value 2>/dev/null || true)"
   XRAY_ACCESS_GROUP="$RUN_GROUP"
   if [ -n "$XRAY_SERVICE_USER" ] && [ "$XRAY_SERVICE_USER" != "root" ] && id "$XRAY_SERVICE_USER" >/dev/null 2>&1; then
@@ -274,9 +308,17 @@ grant_xray_config_access() {
       usermod -a -G "$XRAY_ACCESS_GROUP" "$RUN_USER"
     fi
   fi
-  chgrp "$XRAY_ACCESS_GROUP" "$XRAY_CONFIG_DIR" "$XRAY_CONFIG_PATH"
+  chgrp "$XRAY_ACCESS_GROUP" "$XRAY_CONFIG_DIR"
   chmod 0755 "$XRAY_CONFIG_DIR"
-  chmod 0644 "$XRAY_CONFIG_PATH"
+  if [ -d "$XRAY_CONFIG_PATH" ]; then
+    while IFS= read -r -d '' config_part; do
+      chgrp "$XRAY_ACCESS_GROUP" "$config_part"
+      chmod 0644 "$config_part"
+    done < <(find "$XRAY_CONFIG_PATH" -maxdepth 1 -type f -name '*.json' -print0)
+  else
+    chgrp "$XRAY_ACCESS_GROUP" "$XRAY_CONFIG_PATH"
+    chmod 0644 "$XRAY_CONFIG_PATH"
+  fi
   if command -v runuser >/dev/null 2>&1 && ! runuser -u "$RUN_USER" -- test -r "$XRAY_CONFIG_PATH"; then
     echo "Runtime user $RUN_USER still cannot read Xray config: $XRAY_CONFIG_PATH" >&2
     exit 1
