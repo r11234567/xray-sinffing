@@ -25,12 +25,15 @@ usage() {
   printf '%s\n' \
     "Usage:" \
     "  sudo ./install.sh install [--no-patch-xray] [--no-start]" \
+    "  sudo ./install.sh update [--no-patch-xray] [--no-start]" \
     "  sudo ./install.sh uninstall" \
     "  bash -c \"\$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)\" @ install" \
+    "  bash -c \"\$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)\" @ update" \
     "  bash -c \"\$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)\" @ uninstall" \
     "" \
     "Actions:" \
     "  install             Install, patch Xray Stats/API, and start the service" \
+    "  update              Download the latest release, preserve config/state, and restart" \
     "  uninstall           Remove the service and application; keep config and state" \
     "" \
     "Options:" \
@@ -106,6 +109,9 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     install)
       ACTION="install"
+      ;;
+    update)
+      ACTION="update"
       ;;
     uninstall)
       ACTION="uninstall"
@@ -254,6 +260,23 @@ if [ "$PATCH_XRAY" -eq 1 ]; then
   fi
 fi
 
+grant_xray_config_access() {
+  if [ ! -f "$XRAY_CONFIG_PATH" ]; then
+    echo "Xray config was not found: $XRAY_CONFIG_PATH" >&2
+    exit 1
+  fi
+  XRAY_CONFIG_DIR="$(dirname -- "$XRAY_CONFIG_PATH")"
+  chgrp "$RUN_GROUP" "$XRAY_CONFIG_DIR" "$XRAY_CONFIG_PATH"
+  chmod g+rx "$XRAY_CONFIG_DIR"
+  chmod g+r "$XRAY_CONFIG_PATH"
+  if command -v runuser >/dev/null 2>&1 && ! runuser -u "$RUN_USER" -- test -r "$XRAY_CONFIG_PATH"; then
+    echo "Runtime user $RUN_USER still cannot read Xray config: $XRAY_CONFIG_PATH" >&2
+    exit 1
+  fi
+}
+
+grant_xray_config_access
+
 systemctl daemon-reload
 systemctl enable "$APP_NAME.service" >/dev/null
 
@@ -262,7 +285,11 @@ if [ "$START_SERVICE" -eq 1 ]; then
 fi
 
 echo
-echo "Installed $APP_NAME."
+if [ "$ACTION" = "update" ]; then
+  echo "Updated $APP_NAME."
+else
+  echo "Installed $APP_NAME."
+fi
 echo "Edit configuration: $CONFIG_FILE"
 echo "Then restart: systemctl restart $APP_NAME.service"
 echo "Status: systemctl status $APP_NAME.service --no-pager"

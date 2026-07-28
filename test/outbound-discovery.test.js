@@ -236,3 +236,31 @@ test('a user with disabled policy stats is never reported as zero traffic', () =
   assert.match(report, /统计未启用 \(policy level 1\)/);
   assert.doesNotMatch(report, /<b>user-a<\/b> 总: <code>0 B<\/code>/);
 });
+
+test('unreadable Xray config produces an error report instead of false totals', () => {
+  const cfg = {
+    telegram: {},
+    komari: { probeUrl: '', brandName: 'Traffic', nodeName: 'node' },
+    track: baseTrack
+  };
+  const model = {
+    configError: '读取 Xray 配置失败: EACCES',
+    trackedOutbounds: [],
+    showOutboundBreakdown: false,
+    knownUsers: [],
+    warnings: []
+  };
+  const bucket = {
+    samples: 5,
+    byOutbound: {},
+    byUser: { root: { uplink: 10, downlink: 20, total: 30 } },
+    byUserOutbound: {},
+    unattributedByUser: {},
+    warnings: []
+  };
+  const report = renderTrafficReport('daily', '2026-07-28', bucket, cfg, model).msg;
+
+  assert.match(report, /采集配置错误/);
+  assert.match(report, /EACCES/);
+  assert.doesNotMatch(report, /用户合计/);
+});

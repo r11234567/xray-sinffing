@@ -32,6 +32,14 @@ bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/instal
 bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ install --no-patch-xray
 ```
 
+更新到最新版并保留现有配置、历史状态：
+
+```bash
+bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update
+```
+
+`install` 在已安装机器上重复执行也会覆盖程序为最新版；`update` 是语义更明确的同类操作。两者默认都会检查并补齐 Xray Stats/API、所有 client policy level 和 Xray 配置读取权限，然后重启服务。只更新 reporter 可加 `--no-patch-xray`。程序不会创建无人值守的定时自动更新任务。
+
 远程卸载 reporter 和 systemd 服务（保留配置与历史状态）：
 
 ```bash
@@ -221,6 +229,14 @@ bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/instal
 ```
 
 The installer creates the service user, installs the reporter, keeps a root-owned configuration readable by the service group, and validates any Xray configuration patch with Xray's own test command. Uninstall removes the application and service but keeps `/etc/xray-sinffing` and `/var/lib/xray-sinffing`.
+
+Update while preserving the existing configuration and traffic state:
+
+```bash
+bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update
+```
+
+Running `install` again also refreshes the application. `update` is the explicit equivalent. Both verify Xray Stats/API, client policy levels, and reporter read access by default; add `--no-patch-xray` to refresh only the reporter. No unattended periodic update timer is installed.
 
 ### Configuration
 

@@ -498,12 +498,12 @@ function buildXrayModel(cfg) {
   if (!xrayCfg) {
     warnings.push('未配置 xray.configPath，无法自动发现用户和路由');
     const trackedOutbounds = normalizeOutbounds(cfg, []);
-    return { warnings, emailRecords, knownUsers: [], knownEmails: [], trackedOutbounds, attribution, xrayOutbounds, showOutboundBreakdown: Boolean(cfg.track.forceShowOutboundNames) || trackedOutbounds.length > 1 };
+    return { warnings, configError: warnings[0], emailRecords, knownUsers: [], knownEmails: [], trackedOutbounds, attribution, xrayOutbounds, disabledStatsByUser: {}, showOutboundBreakdown: Boolean(cfg.track.forceShowOutboundNames) || trackedOutbounds.length > 1 };
   }
   if (xrayCfg._readError) {
     warnings.push('读取 Xray 配置失败: ' + xrayCfg._readError);
     const trackedOutbounds = normalizeOutbounds(cfg, []);
-    return { warnings, emailRecords, knownUsers: [], knownEmails: [], trackedOutbounds, attribution, xrayOutbounds, showOutboundBreakdown: Boolean(cfg.track.forceShowOutboundNames) || trackedOutbounds.length > 1 };
+    return { warnings, configError: warnings[0], emailRecords, knownUsers: [], knownEmails: [], trackedOutbounds, attribution, xrayOutbounds, disabledStatsByUser: {}, showOutboundBreakdown: Boolean(cfg.track.forceShowOutboundNames) || trackedOutbounds.length > 1 };
   }
 
   for (const out of asArray(xrayCfg.outbounds)) {
@@ -560,6 +560,7 @@ function buildXrayModel(cfg) {
   }
   return {
     warnings,
+    configError: null,
     emailRecords,
     knownUsers: Array.from(knownUsers).sort(),
     knownEmails: Array.from(knownEmails).sort(),
@@ -924,6 +925,16 @@ function renderTrafficReport(type, key, bucket, cfg, model) {
   const byUserTotal = trafficTotal(bucket.byUser);
   let msg = '<b>' + escapeHtml(CONFIG.BRAND_NAME) + '</b>\n';
   msg += '<b>📊 ' + escapeHtml(reportTitle(type)) + '</b>\n\n';
+  if (model.configError) {
+    msg += '<blockquote>';
+    msg += '节点: <code>' + escapeHtml(nodeName) + '</code>\n';
+    msg += '周期: <code>' + escapeHtml(key) + '</code>';
+    msg += '</blockquote>\n\n';
+    msg += '<b>采集配置错误</b>\n';
+    msg += '<blockquote>' + escapeHtml(model.configError) + '\n报告已停止生成出口和用户归属，修复 Xray 配置读取权限后会自动恢复。</blockquote>\n';
+    msg += '<code>' + formatTime(new Date().toISOString()) + '</code>';
+    return { msg, buttons };
+  }
   msg += '<blockquote>';
   msg += '节点: <code>' + escapeHtml(nodeName) + '</code>\n';
   msg += '周期: <code>' + escapeHtml(key) + '</code>\n';
