@@ -69,8 +69,12 @@ sudo ./install.sh uninstall
 
 ```bash
 sudo nano /etc/xray-sinffing/config.json
+sudo -u xraystat node /opt/xray-sinffing/bin/xray-sinffing.js \
+  --config /etc/xray-sinffing/config.json --once --report daily --dry-run
 sudo systemctl restart xray-sinffing.service
 ```
+
+第二条命令会在不发送 Telegram 的情况下校验配置并预览日报；确认成功后再重启服务，避免 JSON 写错导致 systemd 反复重启。
 
 下面是完整的、可作为起点的配置。`YOUR_...` 是示例值，安装后在本机 `/etc/xray-sinffing/config.json` 中填写实际值。
 
@@ -99,9 +103,17 @@ sudo systemctl restart xray-sinffing.service
     "nodeName": "node-1"
   },
   "track": {
-    "outbounds": [],
-    "userAliases": {},
-    "emailOutbounds": {},
+    "outbounds": [
+      { "tag": "proxy-a", "name": "主出口" },
+      { "tag": "home-out", "name": "家宽出口" }
+    ],
+    "userAliases": {
+      "alice@example.invalid": "Alice",
+      "bob": "Bob"
+    },
+    "emailOutbounds": {
+      "alice@example.invalid": "proxy-a"
+    },
     "includeUntrackedOutbounds": false,
     "forceShowOutboundNames": false,
     "excludeOutbounds": ["api", "block"]
@@ -154,11 +166,11 @@ sudo systemctl restart xray-sinffing.service
 
 #### `track`
 
-- `outbounds`：为自动发现的有效出口设置筛选和显示名，例如 `[ { "tag": "proxy-a", "name": "主出口" } ]`。未被默认出口、inbound 专属规则或专属 balancer 使用的 tag 即使写在这里也不会强行进入报告。
-- `outbounds: []`：自动发现“主出口”，包括 Xray `outbounds` 数组中的首个默认出口，以及带 `inboundTag` 的 inbound 专属 `outboundTag`；inbound 专属 balancer 会按 selector 找到匹配出口。没有 `inboundTag` 的全局 IP/domain 规则只影响实际路由，不会被冒充成所有用户的主出口。自动发现会排除 tag 为 `api`、`block`、`excludeOutbounds` 中的 tag，以及 protocol 为 `blackhole` 的出口。
-- `userAliases`：可选显示名映射。键可以是完整 email 或 `@` 前的用户名，值是报告显示名；为空对象表示直接使用用户名。
-- `emailOutbounds`：可选的显式归因映射，优先使用完整 email，例：`{ "user-a@example.invalid": "proxy-a" }`。也支持以用户名为键，但同名前缀的多个 email 会一起匹配，复杂配置应使用完整 email。
-- `includeUntrackedOutbounds`：显式填写 `outbounds` 时，是否把自动发现但未列出的其他有效出口一并加入报告；默认 `false`。它不会加入无效、内部或 blackhole 出口。
+- `outbounds`：显式列出要显示的有效出口，并用 `name` 设置报告名称。示例中的 `proxy-a`、`home-out` 只是公开占位 tag，必须替换成你自己的 Xray outbound tag。
+- `outbounds: []`：改为空数组后自动发现“主出口”：Xray `outbounds` 数组中的首个默认出口、带 `inboundTag` 的专属 `outboundTag`，以及专属 balancer 的 selector 命中出口。全局 IP/domain 规则不会被冒充成所有用户的出口；`api`、`block`、`excludeOutbounds` 和 `blackhole` 出口会排除。
+- `userAliases`：这是 JSON 对象映射，不是对象数组。键可以是完整 email 或 `@` 前的用户名，值是报告显示名；例如 `"bob": "Bob"`。使用 `{}` 表示不改名，直接显示 email 的 `@` 前部分。
+- `emailOutbounds`：这是 JSON 对象映射，不是对象数组。键是完整 email（推荐）或用户名，值必须是 Xray outbound tag；例如 `"alice@example.invalid": "proxy-a"`。只在自动路由无法唯一确定出口时填写。
+- `includeUntrackedOutbounds`：显式填写 `outbounds` 时，`true` 会追加自动发现但未列出的有效出口；`false` 只显示显式列表。它不会加入内部或 blackhole 出口。
 - `forceShowOutboundNames`：只有一个有效出口时，是否仍显示出口名称和“按出口”分栏；默认 `false`，单出口报告会直接显示本机和用户合计。
 - `excludeOutbounds`：自动发现时额外排除的 outbound tag；默认排除 `api`、`block`。
 
@@ -251,7 +263,55 @@ If state was accumulated while the Xray configuration was unreadable or a client
 
 ### Configuration
 
-Edit `/etc/xray-sinffing/config.json`, using the complete JSON example in the Chinese section as the starting point, then restart `xray-sinffing.service`.
+Edit `/etc/xray-sinffing/config.json` using this complete public example and replace every example value with your own value. Before restarting, run the preview command from the Tests section; it validates the configuration without sending Telegram and prevents a malformed JSON file from entering a systemd restart loop.
+
+```json
+{
+  "xray": {
+    "binary": "/usr/local/bin/xray",
+    "apiServer": "127.0.0.1:10085",
+    "configPath": "/usr/local/etc/xray/config.json"
+  },
+  "runtime": {
+    "statePath": "/var/lib/xray-sinffing/traffic-state.json",
+    "timezone": "Asia/Shanghai",
+    "sampleIntervalSeconds": 300,
+    "initialSnapshotOnly": true,
+    "retentionDays": 120
+  },
+  "telegram": {
+    "botToken": "YOUR_TELEGRAM_BOT_TOKEN",
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "topicId": null
+  },
+  "komari": {
+    "probeUrl": "https://monitor.example.invalid/instance/INSTANCE_ID",
+    "brandName": "Xray Traffic Report",
+    "nodeName": "node-1"
+  },
+  "track": {
+    "outbounds": [
+      { "tag": "proxy-a", "name": "Primary" },
+      { "tag": "home-out", "name": "Home" }
+    ],
+    "userAliases": {
+      "alice@example.invalid": "Alice",
+      "bob": "Bob"
+    },
+    "emailOutbounds": {
+      "alice@example.invalid": "proxy-a"
+    },
+    "includeUntrackedOutbounds": false,
+    "forceShowOutboundNames": false,
+    "excludeOutbounds": ["api", "block"]
+  },
+  "reports": {
+    "daily": { "enabled": true, "time": "00:05", "reportPreviousPeriod": true },
+    "weekly": { "enabled": true, "weekday": 1, "time": "00:10", "reportPreviousPeriod": true },
+    "monthly": { "enabled": true, "day": 1, "time": "00:15", "reportPreviousPeriod": true }
+  }
+}
+```
 
 `xray` fields:
 
@@ -277,11 +337,11 @@ Edit `/etc/xray-sinffing/config.json`, using the complete JSON example in the Ch
 
 `track` fields:
 
-- `outbounds`: filters smart-discovered effective outbounds and assigns display names. A tag that is not the default or used by an inbound-scoped rule/balancer is not forced into the report merely because it appears here.
-- An empty `outbounds` discovers the first/default outbound plus inbound-scoped outbound rules and inbound-scoped balancers. Global IP/domain rules are excluded from primary user attribution. Automatic discovery excludes `api`, `block`, tags in `excludeOutbounds`, and `blackhole` protocol outbounds.
-- `userAliases`: maps a full email or local username to a display name. An empty object keeps the username unchanged.
-- `emailOutbounds`: explicit user traffic attribution from a full email (preferred) or local username to one outbound tag.
-- `includeUntrackedOutbounds`: with an explicit list, append other smart-discovered effective outbounds. It does not re-enable excluded internal or blackhole outbounds.
+- `outbounds`: explicitly lists effective outbound tags and display names. `proxy-a` and `home-out` above are public placeholders and must be replaced.
+- Set `outbounds` to `[]` for automatic discovery of the first/default outbound, inbound-scoped rules, and inbound-scoped balancer selectors. Global IP/domain rules are not used as primary user attribution. `api`, `block`, excluded tags, and blackhole outbounds are omitted.
+- `userAliases`: a JSON object mapping a full email or local username to a display name, not an array. `{}` keeps the local username unchanged.
+- `emailOutbounds`: a JSON object mapping a full email (preferred) or local username to one outbound tag. `{}` means no manual overrides.
+- `includeUntrackedOutbounds`: with an explicit list, `true` appends other smart-discovered effective outbounds; `false` keeps only the list. It does not re-enable excluded internal or blackhole outbounds.
 - `forceShowOutboundNames`: show outbound sections even when there is only one effective outbound. The default single-outbound report shows totals without a redundant outbound label.
 - `excludeOutbounds`: additional tags omitted by automatic discovery.
 
