@@ -8,7 +8,8 @@ const {
   normalizeOutbounds,
   rebuildBucketAttribution,
   routeForInbound,
-  renderTrafficReport
+  renderTrafficReport,
+  sendReport
 } = require('../bin/xray-sinffing.js');
 
 const baseTrack = {
@@ -110,6 +111,45 @@ test('single-outbound report omits redundant outbound sections', () => {
   assert.match(report, /用户合计/);
   assert.doesNotMatch(report, /本机出口合计/);
   assert.doesNotMatch(report, /Primary/);
+});
+
+test('preview and skipped Telegram sends do not consume the scheduled report marker', async () => {
+  const cfg = {
+    telegram: {},
+    komari: { probeUrl: '', brandName: 'Traffic', nodeName: 'node' },
+    track: baseTrack
+  };
+  const model = {
+    trackedOutbounds: [{ tag: 'direct', name: 'Primary' }],
+    showOutboundBreakdown: false,
+    knownUsers: [],
+    warnings: []
+  };
+  const bucket = {
+    samples: 0,
+    byOutbound: {},
+    byUser: {},
+    byUserOutbound: {},
+    unattributedByUser: {},
+    warnings: []
+  };
+  const state = {
+    buckets: { daily: { '2026-07-28': bucket } },
+    sentReports: { daily: {} }
+  };
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  console.log = () => {};
+  console.warn = () => {};
+  try {
+    assert.equal(await sendReport('daily', '2026-07-28', state, cfg, model, true), true);
+    assert.equal(state.sentReports.daily['2026-07-28'], undefined);
+    assert.equal(await sendReport('daily', '2026-07-28', state, cfg, model, false), false);
+    assert.equal(state.sentReports.daily['2026-07-28'], undefined);
+  } finally {
+    console.log = originalLog;
+    console.warn = originalWarn;
+  }
 });
 
 test('user attribution uses default for global rules and rejects conditional inbound rules', () => {

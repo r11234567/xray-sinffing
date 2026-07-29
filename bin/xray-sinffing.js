@@ -828,10 +828,13 @@ function splitTelegramMessage(message, maxLen) {
 
 async function sendLongMessage(cfg, htmlMessage, buttons, dryRun) {
   const chunks = splitTelegramMessage(htmlMessage, 3600);
+  let delivered = true;
   for (let i = 0; i < chunks.length; i += 1) {
     const suffix = chunks.length > 1 ? '\n<code>part ' + (i + 1) + '/' + chunks.length + '</code>' : '';
-    await sendMessage(cfg, chunks[i] + suffix, i === 0 ? buttons : null, dryRun);
+    const result = await sendMessage(cfg, chunks[i] + suffix, i === 0 ? buttons : null, dryRun);
+    if (result !== true) delivered = false;
   }
+  return delivered;
 }
 
 async function sendEvent(event, cfg, dryRun = false) {
@@ -1017,8 +1020,9 @@ function renderTrafficReport(type, key, bucket, cfg, model) {
 async function sendReport(type, key, state, cfg, model, dryRun) {
   const bucket = state.buckets[type][key] || makeBucket(key);
   const rendered = renderTrafficReport(type, key, bucket, cfg, model);
-  await sendLongMessage(cfg, rendered.msg, rendered.buttons, dryRun);
-  state.sentReports[type][key] = new Date().toISOString();
+  const delivered = await sendLongMessage(cfg, rendered.msg, rendered.buttons, dryRun);
+  if (!dryRun && delivered) state.sentReports[type][key] = new Date().toISOString();
+  return delivered;
 }
 
 function pruneOldBuckets(state, cfg) {
@@ -1157,5 +1161,6 @@ module.exports = {
   effectiveInboundTag,
   rebuildBucketAttribution,
   routeForInbound,
-  renderTrafficReport
+  renderTrafficReport,
+  sendReport
 };
