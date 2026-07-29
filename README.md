@@ -207,6 +207,8 @@ sudo -u xraystat node /opt/xray-sinffing/bin/xray-sinffing.js \
   --config /etc/xray-sinffing/config.json --once --report daily
 ```
 
+`--dry-run` 只预览内容，不访问 Telegram，也不会记录该周期为“已发送”；只有 Telegram API 成功后才会写入发送标记。
+
 只发送一次 Komari 风格模板测试消息：
 
 ```bash
@@ -366,3 +368,5 @@ sudo -u xraystat node /opt/xray-sinffing/bin/xray-sinffing.js --config /etc/xray
 ```
 
 The first report command is preview-only. The second sends a real current daily report. The third sends the integrated Komari-style test template. Use `weekly` or `monthly` in place of `daily` for those report types.
+
+`--dry-run` does not contact Telegram or mark the selected period as sent; a period is marked only after Telegram accepts the message.
