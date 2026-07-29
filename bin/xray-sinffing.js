@@ -56,10 +56,10 @@ function usage() {
     '',
     'Options:',
     '  --config PATH',
-    '  --once                 Run one sample and exit',
-    '  --report TYPE          Force report: daily, weekly, monthly, all',
+    '  --once                 Run one sample and exit; do not run the report scheduler',
+    '  --report TYPE          Send a manual report without consuming its scheduled marker',
     '  --dry-run              Print reports instead of sending Telegram messages',
-    '  --test-telegram        Send a test Telegram message with the integrated template'
+    '  --test-telegram        Send only a test message; never consume report markers'
   ].join('\n'));
 }
 
@@ -1017,11 +1017,11 @@ function renderTrafficReport(type, key, bucket, cfg, model) {
   return { msg, buttons };
 }
 
-async function sendReport(type, key, state, cfg, model, dryRun) {
+async function sendReport(type, key, state, cfg, model, dryRun, recordSent = false) {
   const bucket = state.buckets[type][key] || makeBucket(key);
   const rendered = renderTrafficReport(type, key, bucket, cfg, model);
   const delivered = await sendLongMessage(cfg, rendered.msg, rendered.buttons, dryRun);
-  if (!dryRun && delivered) state.sentReports[type][key] = new Date().toISOString();
+  if (recordSent && !dryRun && delivered) state.sentReports[type][key] = new Date().toISOString();
   return delivered;
 }
 
@@ -1037,7 +1037,7 @@ function pruneOldBuckets(state, cfg) {
 
 async function sampleOnce(configPath, options) {
   const cfg = loadConfig(configPath);
-  if (options.testTelegram && !options.once && !options.report) {
+  if (options.testTelegram) {
     await sendEvent({
       event: 'Test',
       time: new Date().toISOString(),
@@ -1075,35 +1075,17 @@ async function sampleOnce(configPath, options) {
     console.log('Sample saved at ' + state.lastSampleAt);
   }
 
-  if (options.testTelegram) {
-    await sendEvent({
-      event: 'Test',
-      time: new Date().toISOString(),
-      message: 'Xray Sinffing Telegram template is working.',
-      clients: [{
-        name: cfg.komari.nodeName || os.hostname(),
-        os: os.type(),
-        version: os.release(),
-        cpu_name: os.cpus()[0] ? os.cpus()[0].model : '',
-        cpu_cores: os.cpus().length,
-        mem_total: os.totalmem(),
-        disk_total: 0,
-        uuid: ''
-      }]
-    }, cfg, options.dryRun);
-  }
-
   const now = new Date();
   if (options.report) {
     const types = options.report === 'all' ? ['daily', 'weekly', 'monthly'] : [options.report];
     for (const type of types) {
       const key = targetReportKey(type, cfg, now, true);
-      await sendReport(type, key, state, cfg, model, options.dryRun);
+      await sendReport(type, key, state, cfg, model, options.dryRun, false);
     }
     writeJsonAtomic(cfg.runtime.statePath, state);
-  } else {
+  } else if (!options.once) {
     for (const item of dueReportTypes(cfg, state, now)) {
-      await sendReport(item.type, item.key, state, cfg, model, options.dryRun);
+      await sendReport(item.type, item.key, state, cfg, model, options.dryRun, true);
     }
     writeJsonAtomic(cfg.runtime.statePath, state);
   }

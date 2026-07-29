@@ -113,9 +113,9 @@ test('single-outbound report omits redundant outbound sections', () => {
   assert.doesNotMatch(report, /Primary/);
 });
 
-test('preview and skipped Telegram sends do not consume the scheduled report marker', async () => {
+test('only successful scheduled delivery consumes the report marker', async () => {
   const cfg = {
-    telegram: {},
+    telegram: { botToken: 'test-token', chatId: 'test-chat' },
     komari: { probeUrl: '', brandName: 'Traffic', nodeName: 'node' },
     track: baseTrack
   };
@@ -139,16 +139,28 @@ test('preview and skipped Telegram sends do not consume the scheduled report mar
   };
   const originalLog = console.log;
   const originalWarn = console.warn;
+  const originalFetch = global.fetch;
   console.log = () => {};
   console.warn = () => {};
+  global.fetch = async () => ({ ok: true });
   try {
-    assert.equal(await sendReport('daily', '2026-07-28', state, cfg, model, true), true);
+    assert.equal(await sendReport('daily', '2026-07-28', state, cfg, model, false, false), true);
     assert.equal(state.sentReports.daily['2026-07-28'], undefined);
-    assert.equal(await sendReport('daily', '2026-07-28', state, cfg, model, false), false);
+
+    assert.equal(await sendReport('daily', '2026-07-28', state, cfg, model, true, true), true);
+    assert.equal(state.sentReports.daily['2026-07-28'], undefined);
+
+    assert.equal(await sendReport('daily', '2026-07-28', state, cfg, model, false, true), true);
+    assert.ok(state.sentReports.daily['2026-07-28']);
+
+    delete state.sentReports.daily['2026-07-28'];
+    cfg.telegram = {};
+    assert.equal(await sendReport('daily', '2026-07-28', state, cfg, model, false, true), false);
     assert.equal(state.sentReports.daily['2026-07-28'], undefined);
   } finally {
     console.log = originalLog;
     console.warn = originalWarn;
+    global.fetch = originalFetch;
   }
 });
 
