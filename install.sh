@@ -16,6 +16,7 @@ ACTION="install"
 PATCH_XRAY=1
 START_SERVICE=1
 RESET_STATE=0
+RESEND_REPORT=""
 
 if [ -z "$RUN_USER" ]; then RUN_USER="xraystat"; fi
 if [ -z "$XRAY_BIN" ]; then XRAY_BIN="/usr/local/bin/xray"; fi
@@ -25,7 +26,7 @@ usage() {
   printf '%s\n' \
     "Usage:" \
     "  sudo ./install.sh install [--no-patch-xray] [--no-start]" \
-    "  sudo ./install.sh update [--no-patch-xray] [--no-start] [--reset-state]" \
+    "  sudo ./install.sh update [--no-patch-xray] [--no-start] [--reset-state] [--resend-weekly|--resend-monthly]" \
     "  sudo ./install.sh uninstall" \
     "  bash -c \"\$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)\" @ install" \
     "  bash -c \"\$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)\" @ update" \
@@ -41,6 +42,8 @@ usage() {
     "  --no-patch-xray     Install without changing Xray config" \
     "  --no-start          Install without starting the reporter" \
     "  --reset-state       Back up incompatible traffic state and start from a new baseline" \
+    "  --resend-weekly     Update, send the current weekly report, and mark that week sent" \
+    "  --resend-monthly    Update, send the current monthly report, and mark that month sent" \
     "" \
     "Environment variables:" \
     "  TG_BOT_TOKEN       Telegram bot token" \
@@ -129,6 +132,20 @@ while [ "$#" -gt 0 ]; do
     --reset-state)
       RESET_STATE=1
       ;;
+    --resend-weekly)
+      if [ -n "$RESEND_REPORT" ] && [ "$RESEND_REPORT" != "weekly" ]; then
+        echo "Only one resend period can be selected" >&2
+        exit 1
+      fi
+      RESEND_REPORT="weekly"
+      ;;
+    --resend-monthly)
+      if [ -n "$RESEND_REPORT" ] && [ "$RESEND_REPORT" != "monthly" ]; then
+        echo "Only one resend period can be selected" >&2
+        exit 1
+      fi
+      RESEND_REPORT="monthly"
+      ;;
     -h|--help)
       usage
       exit 0
@@ -141,6 +158,15 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
+
+if [ -n "$RESEND_REPORT" ] && [ "$ACTION" != "update" ]; then
+  echo "--resend-$RESEND_REPORT requires the update action" >&2
+  exit 1
+fi
+if [ -n "$RESEND_REPORT" ] && [ "$START_SERVICE" -ne 1 ]; then
+  echo "--resend-$RESEND_REPORT cannot be combined with --no-start" >&2
+  exit 1
+fi
 
 uninstall_app() {
   systemctl disable --now "$APP_NAME.service" >/dev/null 2>&1 || true
@@ -344,7 +370,18 @@ fi
 systemctl daemon-reload
 systemctl enable "$APP_NAME.service" >/dev/null
 
-if [ "$START_SERVICE" -eq 1 ]; then
+if [ -n "$RESEND_REPORT" ]; then
+  systemctl stop "$APP_NAME.service" >/dev/null 2>&1 || true
+  if runuser -u "$RUN_USER" -- node "$APP_DIR/bin/xray-sinffing.js" \
+    --config "$CONFIG_FILE" --once --report "$RESEND_REPORT" --mark-sent; then
+    echo "Resent current $RESEND_REPORT report."
+  else
+    REPORT_STATUS=$?
+    systemctl start "$APP_NAME.service"
+    exit "$REPORT_STATUS"
+  fi
+  systemctl start "$APP_NAME.service"
+elif [ "$START_SERVICE" -eq 1 ]; then
   systemctl restart "$APP_NAME.service"
 fi
 

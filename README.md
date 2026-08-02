@@ -38,6 +38,14 @@ bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/instal
 bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update
 ```
 
+更新后立即重发“当前有数据的周报”，并把当前周记录为已发送：
+
+```bash
+bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update --no-patch-xray --resend-weekly
+```
+
+月报的对应命令是 `update --no-patch-xray --resend-monthly`。这两个恢复命令会在更新期间暂时停止 reporter，发送成功并写入正确周期标记后再启动服务；普通 `--report` 和测试命令仍不会写标记。
+
 `install` 在已安装机器上重复执行也会覆盖程序为最新版；`update` 是语义更明确的同类操作。两者默认都会检查并补齐 Xray Stats/API、所有 client policy level 和配置读取权限，然后重启服务。Xray 配置和 `/etc/xray-sinffing` 目录规范为 `755`，JSON 配置文件规范为 `644`，普通用户可读但不可写。只更新 reporter 可加 `--no-patch-xray`。程序不会创建无人值守的定时自动更新任务。
 
 如果旧报告曾在“Xray 配置不可读”或“某个 policy level 未启用 user Stats”期间累计，旧状态缺少一侧计数器，无法事后还原。使用下面的命令可在更新成功后备份旧状态，并从新的 Xray 计数器基线开始：
@@ -183,6 +191,7 @@ sudo systemctl restart xray-sinffing.service
 - `monthly.day`：每月发送日；不存在的日期不会触发，例如 31 日在 2 月不会发送。
 - `enabled`：是否启用该报告。
 - `reportPreviousPeriod`：定时任务设为 `true` 时发送刚结束的完整日/周/月；设为 `false` 时发送当前周期累计。命令行 `--report` 用于立即发送当前周期。
+- 周报使用 ISO 周（周一至周日）。例如周日运行且 `reportPreviousPeriod: true` 时，发送的是上一完整 ISO 周，而不是包含当天的当前周。若程序在上一周结束后才安装或重置，上一周没有采样；报告会明确显示“无可用采样数据”，不会再把缺失数据写成 `0 B`。月报采用相同原则。
 
 ### 测试
 
@@ -258,6 +267,14 @@ Update while preserving the existing configuration and traffic state:
 ```bash
 bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update
 ```
+
+Update and immediately resend the current weekly period with its successful recovery marker:
+
+```bash
+bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update --no-patch-xray --resend-weekly
+```
+
+Use `--resend-monthly` for the current monthly period. These recovery options stop the reporter during delivery, record the correct period only after Telegram accepts it, and then restart the service. Ordinary manual and test commands still do not consume scheduler markers.
 
 Running `install` again also refreshes the application. `update` is the explicit equivalent. Both verify Xray Stats/API, client policy levels, and reporter read access by default. Xray configuration directories and `/etc/xray-sinffing` are normalized to mode `755`; their JSON configuration files use mode `644`, making them readable but not writable by ordinary users. Add `--no-patch-xray` to refresh only the reporter. No unattended periodic update timer is installed.
 
@@ -356,6 +373,7 @@ Reports display Xray's outbound total and user total as separate counter dimensi
 - `weekly.weekday`: Monday is 1 and Sunday is 7.
 - `monthly.day`: day of month.
 - `reportPreviousPeriod`: scheduled reports use the previous completed period when `true`, or the current accumulated period when `false`. A command-line `--report` sends the current period immediately.
+- Weekly keys follow ISO weeks from Monday through Sunday. On Sunday, `reportPreviousPeriod: true` targets the preceding completed ISO week, not the current week containing that Sunday. If installation or a state reset happened after the target period ended, the report now says that no samples exist instead of presenting missing data as `0 B`. Monthly reports follow the same rule.
 
 ### Tests
 

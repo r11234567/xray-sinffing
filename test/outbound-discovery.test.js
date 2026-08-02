@@ -9,7 +9,8 @@ const {
   rebuildBucketAttribution,
   routeForInbound,
   renderTrafficReport,
-  sendReport
+  sendReport,
+  targetReportKey
 } = require('../bin/xray-sinffing.js');
 
 const baseTrack = {
@@ -111,6 +112,46 @@ test('single-outbound report omits redundant outbound sections', () => {
   assert.match(report, /用户合计/);
   assert.doesNotMatch(report, /本机出口合计/);
   assert.doesNotMatch(report, /Primary/);
+});
+
+test('a period without samples is reported as missing data instead of zero traffic', () => {
+  const cfg = {
+    telegram: {},
+    komari: { probeUrl: '', brandName: 'Traffic', nodeName: 'node' },
+    track: baseTrack
+  };
+  const model = {
+    trackedOutbounds: [{ tag: 'direct', name: 'Primary' }],
+    showOutboundBreakdown: false,
+    knownUsers: ['user-a'],
+    warnings: []
+  };
+  const bucket = {
+    samples: 0,
+    byOutbound: {},
+    byUser: {},
+    byUserOutbound: {},
+    unattributedByUser: {},
+    warnings: []
+  };
+  const report = renderTrafficReport('weekly', '2026-W30', bucket, cfg, model).msg;
+  assert.match(report, /无可用采样数据/);
+  assert.doesNotMatch(report, /出口合计|用户合计|总: <code>0 B/);
+});
+
+test('scheduled previous periods and manual current periods use distinct keys', () => {
+  const cfg = {
+    reports: {
+      weekly: { reportPreviousPeriod: true },
+      monthly: { reportPreviousPeriod: true }
+    }
+  };
+  const sunday = new Date(2026, 7, 2, 8, 0, 0);
+  const august = new Date(2026, 7, 5, 8, 0, 0);
+  assert.equal(targetReportKey('weekly', cfg, sunday, false), '2026-W30');
+  assert.equal(targetReportKey('weekly', cfg, sunday, true), '2026-W31');
+  assert.equal(targetReportKey('monthly', cfg, august, false), '2026-07');
+  assert.equal(targetReportKey('monthly', cfg, august, true), '2026-08');
 });
 
 test('only successful scheduled delivery consumes the report marker', async () => {
