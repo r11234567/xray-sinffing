@@ -58,7 +58,6 @@ function usage() {
     '  --config PATH',
     '  --once                 Run one sample and exit; do not run the report scheduler',
     '  --report TYPE          Send a manual report without consuming its scheduled marker',
-    '  --mark-sent            With --report, record a successful recovery delivery',
     '  --dry-run              Print reports instead of sending Telegram messages',
     '  --test-telegram        Send only a test message; never consume report markers'
   ].join('\n'));
@@ -69,7 +68,6 @@ function parseArgs(argv) {
     config: DEFAULT_CONFIG_PATH,
     once: false,
     report: null,
-    markSent: false,
     dryRun: false,
     testTelegram: false
   };
@@ -79,7 +77,6 @@ function parseArgs(argv) {
     else if (a === '--config') args.config = argv[++i];
     else if (a === '--once') args.once = true;
     else if (a === '--report') args.report = argv[++i];
-    else if (a === '--mark-sent') args.markSent = true;
     else if (a === '--dry-run') args.dryRun = true;
     else if (a === '--test-telegram') args.testTelegram = true;
     else throw new Error('unknown argument: ' + a);
@@ -1094,7 +1091,7 @@ async function sampleOnce(configPath, options) {
     const types = options.report === 'all' ? ['daily', 'weekly', 'monthly'] : [options.report];
     for (const type of types) {
       const key = targetReportKey(type, cfg, now, true);
-      await sendReport(type, key, state, cfg, model, options.dryRun, options.markSent);
+      await sendReport(type, key, state, cfg, model, options.dryRun, false);
     }
     writeJsonAtomic(cfg.runtime.statePath, state);
   } else if (!options.once) {
@@ -1133,7 +1130,6 @@ async function main() {
     usage();
     return;
   }
-  if (args.markSent && !args.report) throw new Error('--mark-sent requires --report');
   if (!commandExists(loadConfig(args.config).xray.binary)) {
     console.warn('WARN xray binary is not executable at configured path');
   }

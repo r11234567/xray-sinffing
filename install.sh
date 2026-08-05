@@ -42,8 +42,8 @@ usage() {
     "  --no-patch-xray     Install without changing Xray config" \
     "  --no-start          Install without starting the reporter" \
     "  --reset-state       Back up incompatible traffic state and start from a new baseline" \
-    "  --resend-weekly     Update, send the current weekly report, and mark that week sent" \
-    "  --resend-monthly    Update, send the current monthly report, and mark that month sent" \
+    "  --resend-weekly     Update and send the current weekly report without a scheduler marker" \
+    "  --resend-monthly    Update and send the current monthly report without a scheduler marker" \
     "" \
     "Environment variables:" \
     "  TG_BOT_TOKEN       Telegram bot token" \
@@ -373,7 +373,7 @@ systemctl enable "$APP_NAME.service" >/dev/null
 if [ -n "$RESEND_REPORT" ]; then
   systemctl stop "$APP_NAME.service" >/dev/null 2>&1 || true
   if runuser -u "$RUN_USER" -- node "$APP_DIR/bin/xray-sinffing.js" \
-    --config "$CONFIG_FILE" --once --report "$RESEND_REPORT" --mark-sent; then
+    --config "$CONFIG_FILE" --once --report "$RESEND_REPORT"; then
     echo "Resent current $RESEND_REPORT report."
   else
     REPORT_STATUS=$?

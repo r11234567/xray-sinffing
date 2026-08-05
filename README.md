@@ -38,13 +38,13 @@ bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/instal
 bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update
 ```
 
-更新后立即重发“当前有数据的周报”，并把当前周记录为已发送：
+更新后立即重发“当前有数据的周报”，但不占用未来完整周报的定时发送标记：
 
 ```bash
 bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update --no-patch-xray --resend-weekly
 ```
 
-月报的对应命令是 `update --no-patch-xray --resend-monthly`。这两个恢复命令会在更新期间暂时停止 reporter，发送成功并写入正确周期标记后再启动服务；普通 `--report` 和测试命令仍不会写标记。
+月报的对应命令是 `update --no-patch-xray --resend-monthly`。这两个恢复命令会在更新期间暂时停止 reporter，发送当前累计后再启动服务；它们与普通 `--report` 和测试命令一样不会写调度标记，因此未来的完整周期报告仍会正常发送。
 
 `install` 在已安装机器上重复执行也会覆盖程序为最新版；`update` 是语义更明确的同类操作。两者默认都会检查并补齐 Xray Stats/API、所有 client policy level 和配置读取权限，然后重启服务。Xray 配置和 `/etc/xray-sinffing` 目录规范为 `755`，JSON 配置文件规范为 `644`，普通用户可读但不可写。只更新 reporter 可加 `--no-patch-xray`。程序不会创建无人值守的定时自动更新任务。
 
@@ -268,13 +268,13 @@ Update while preserving the existing configuration and traffic state:
 bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update
 ```
 
-Update and immediately resend the current weekly period with its successful recovery marker:
+Update and immediately resend the current weekly period without consuming its future completed-period scheduler marker:
 
 ```bash
 bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update --no-patch-xray --resend-weekly
 ```
 
-Use `--resend-monthly` for the current monthly period. These recovery options stop the reporter during delivery, record the correct period only after Telegram accepts it, and then restart the service. Ordinary manual and test commands still do not consume scheduler markers.
+Use `--resend-monthly` for the current monthly period. These recovery options stop the reporter during delivery and restart it afterward. Like ordinary manual and test commands, they do not consume scheduler markers, so the future completed-period report is still delivered.
 
 Running `install` again also refreshes the application. `update` is the explicit equivalent. Both verify Xray Stats/API, client policy levels, and reporter read access by default. Xray configuration directories and `/etc/xray-sinffing` are normalized to mode `755`; their JSON configuration files use mode `644`, making them readable but not writable by ordinary users. Add `--no-patch-xray` to refresh only the reporter. No unattended periodic update timer is installed.
 
