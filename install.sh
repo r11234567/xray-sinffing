@@ -377,7 +377,7 @@ if [ -n "$RESEND_REPORT" ]; then
   systemctl stop "$APP_NAME.service" >/dev/null 2>&1 || true
   if runuser -u "$RUN_USER" -- node "$APP_DIR/bin/xray-sinffing.js" \
     --config "$CONFIG_FILE" --once --report "$RESEND_REPORT" --completed; then
-    echo "Resent current $RESEND_REPORT report."
+    echo "Resent latest completed $RESEND_REPORT interval."
   else
     REPORT_STATUS=$?
     systemctl start "$APP_NAME.service"
