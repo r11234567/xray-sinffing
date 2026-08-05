@@ -35,20 +35,17 @@
   "reports": {
     "daily": {
       "enabled": true,
-      "time": "00:05",
-      "reportPreviousPeriod": true
+      "time": "00:05"
     },
     "weekly": {
       "enabled": true,
       "weekday": 1,
-      "time": "00:10",
-      "reportPreviousPeriod": true
+      "time": "00:10"
     },
     "monthly": {
       "enabled": true,
       "day": 1,
-      "time": "00:15",
-      "reportPreviousPeriod": true
+      "time": "00:15"
     }
   }
 }

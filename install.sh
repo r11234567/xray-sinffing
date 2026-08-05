@@ -42,8 +42,8 @@ usage() {
     "  --no-patch-xray     Install without changing Xray config" \
     "  --no-start          Install without starting the reporter" \
     "  --reset-state       Back up incompatible traffic state and start from a new baseline" \
-    "  --resend-weekly     Update and send the current weekly report without a scheduler marker" \
-    "  --resend-monthly    Update and send the current monthly report without a scheduler marker" \
+    "  --resend-weekly     Update and resend the latest completed weekly interval" \
+    "  --resend-monthly    Update and resend the latest completed monthly interval" \
     "" \
     "Environment variables:" \
     "  TG_BOT_TOKEN       Telegram bot token" \
@@ -298,6 +298,9 @@ if (process.env.TRACK_OUTBOUNDS) {
     return { tag: part.slice(0, idx).trim(), name: part.slice(idx + 1).trim() };
   }).filter((x) => x.tag);
 }
+for (const report of Object.values(cfg.reports || {})) {
+  if (report && typeof report === 'object') delete report.reportPreviousPeriod;
+}
 fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o644 });
 NODE
 
@@ -373,7 +376,7 @@ systemctl enable "$APP_NAME.service" >/dev/null
 if [ -n "$RESEND_REPORT" ]; then
   systemctl stop "$APP_NAME.service" >/dev/null 2>&1 || true
   if runuser -u "$RUN_USER" -- node "$APP_DIR/bin/xray-sinffing.js" \
-    --config "$CONFIG_FILE" --once --report "$RESEND_REPORT"; then
+    --config "$CONFIG_FILE" --once --report "$RESEND_REPORT" --completed; then
     echo "Resent current $RESEND_REPORT report."
   else
     REPORT_STATUS=$?

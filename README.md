@@ -38,13 +38,13 @@ bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/instal
 bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update
 ```
 
-更新后立即重发“当前有数据的周报”，但不占用未来完整周报的定时发送标记：
+更新后立即重发刚结束的完整周报区间：
 
 ```bash
 bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update --no-patch-xray --resend-weekly
 ```
 
-月报的对应命令是 `update --no-patch-xray --resend-monthly`。这两个恢复命令会在更新期间暂时停止 reporter，发送当前累计后再启动服务；它们与普通 `--report` 和测试命令一样不会写调度标记，因此未来的完整周期报告仍会正常发送。
+月报的对应命令是 `update --no-patch-xray --resend-monthly`。恢复命令会暂时停止 reporter，按上次发送边界到本次发送边界重新汇总日报，Telegram 成功后写入该完整区间的调度标记，再启动服务。普通 `--report` 和测试命令仍不会写标记。
 
 `install` 在已安装机器上重复执行也会覆盖程序为最新版；`update` 是语义更明确的同类操作。两者默认都会检查并补齐 Xray Stats/API、所有 client policy level 和配置读取权限，然后重启服务。Xray 配置和 `/etc/xray-sinffing` 目录规范为 `755`，JSON 配置文件规范为 `644`，普通用户可读但不可写。只更新 reporter 可加 `--no-patch-xray`。程序不会创建无人值守的定时自动更新任务。
 
@@ -129,20 +129,17 @@ sudo systemctl restart xray-sinffing.service
   "reports": {
     "daily": {
       "enabled": true,
-      "time": "00:05",
-      "reportPreviousPeriod": true
+      "time": "00:05"
     },
     "weekly": {
       "enabled": true,
       "weekday": 1,
-      "time": "00:10",
-      "reportPreviousPeriod": true
+      "time": "00:10"
     },
     "monthly": {
       "enabled": true,
       "day": 1,
-      "time": "00:15",
-      "reportPreviousPeriod": true
+      "time": "00:15"
     }
   }
 }
@@ -188,10 +185,10 @@ sudo systemctl restart xray-sinffing.service
 
 - `daily.time`、`weekly.time`、`monthly.time`：按 `runtime.timezone` 解释的 24 小时制 `HH:MM`。
 - `weekly.weekday`：1 表示周一，7 表示周日。
-- `monthly.day`：每月发送日；不存在的日期不会触发，例如 31 日在 2 月不会发送。
+- `monthly.day`：每月发送日；若当月不存在该日期，则使用当月最后一天，例如 `31` 在 2 月按 2 月最后一天发送。
 - `enabled`：是否启用该报告。
-- `reportPreviousPeriod`：定时任务设为 `true` 时发送刚结束的完整日/周/月；设为 `false` 时发送当前周期累计。命令行 `--report` 用于立即发送当前周期。
-- 周报使用 ISO 周（周一至周日）。例如周日运行且 `reportPreviousPeriod: true` 时，发送的是上一完整 ISO 周，而不是包含当天的当前周。若程序在上一周结束后才安装或重置，上一周没有采样；报告会明确显示“无可用采样数据”，不会再把缺失数据写成 `0 B`。月报采用相同原则。
+- 报告周期由发送日期直接定义，不使用自然周或自然月。日报汇总前一日；周报统计上次 `weekly.weekday` 到本次；月报统计上月 `monthly.day` 到本月同一日期。例如每月 5 日发送，就汇总上月 5 日（含）到本月 5 日（不含）之间保存的日报。`time` 控制当天几点发送。
+- 周报和月报在发送时从日报桶重新汇总，因此同一天的流量必然同时进入对应周/月报告。安装或状态重置之前没有保存的日报无法还原；这种区间会明确显示实际采样覆盖，不会把缺失数据臆造成流量。
 
 ### 测试
 
@@ -268,13 +265,13 @@ Update while preserving the existing configuration and traffic state:
 bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update
 ```
 
-Update and immediately resend the current weekly period without consuming its future completed-period scheduler marker:
+Update and immediately resend the latest completed weekly send-to-send interval:
 
 ```bash
 bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update --no-patch-xray --resend-weekly
 ```
 
-Use `--resend-monthly` for the current monthly period. These recovery options stop the reporter during delivery and restart it afterward. Like ordinary manual and test commands, they do not consume scheduler markers, so the future completed-period report is still delivered.
+Use `--resend-monthly` for the latest completed monthly interval. Recovery stops the reporter, rebuilds the interval from daily buckets, records the completed boundary only after Telegram accepts the report, and restarts the service. Ordinary manual and test commands still do not consume scheduler markers.
 
 Running `install` again also refreshes the application. `update` is the explicit equivalent. Both verify Xray Stats/API, client policy levels, and reporter read access by default. Xray configuration directories and `/etc/xray-sinffing` are normalized to mode `755`; their JSON configuration files use mode `644`, making them readable but not writable by ordinary users. Add `--no-patch-xray` to refresh only the reporter. No unattended periodic update timer is installed.
 
@@ -325,9 +322,9 @@ Edit `/etc/xray-sinffing/config.json` using this complete public example and rep
     "excludeOutbounds": ["api", "block"]
   },
   "reports": {
-    "daily": { "enabled": true, "time": "00:05", "reportPreviousPeriod": true },
-    "weekly": { "enabled": true, "weekday": 1, "time": "00:10", "reportPreviousPeriod": true },
-    "monthly": { "enabled": true, "day": 1, "time": "00:15", "reportPreviousPeriod": true }
+    "daily": { "enabled": true, "time": "00:05" },
+    "weekly": { "enabled": true, "weekday": 1, "time": "00:10" },
+    "monthly": { "enabled": true, "day": 1, "time": "00:15" }
   }
 }
 ```
@@ -372,8 +369,9 @@ Reports display Xray's outbound total and user total as separate counter dimensi
 - `time`: 24-hour `HH:MM` in `runtime.timezone`.
 - `weekly.weekday`: Monday is 1 and Sunday is 7.
 - `monthly.day`: day of month.
-- `reportPreviousPeriod`: scheduled reports use the previous completed period when `true`, or the current accumulated period when `false`. A command-line `--report` sends the current period immediately.
-- Weekly keys follow ISO weeks from Monday through Sunday. On Sunday, `reportPreviousPeriod: true` targets the preceding completed ISO week, not the current week containing that Sunday. If installation or a state reset happened after the target period ended, the report now says that no samples exist instead of presenting missing data as `0 B`. Monthly reports follow the same rule.
+- If `monthly.day` does not exist in a month, delivery uses that month's final day; for example, day `31` maps to the last day of February.
+- Report intervals are defined by configured send dates rather than calendar weeks or months. Daily aggregates the previous date; weekly covers the previous configured weekday through the current one; monthly covers the previous configured day-of-month through the current one. A report sent on day 5 therefore aggregates daily buckets from the previous day 5 (inclusive) to the current day 5 (exclusive). `time` controls when delivery runs on that date.
+- Weekly and monthly reports are rebuilt from daily buckets at delivery time, so every daily total is included in the matching aggregate interval. Data from before installation or a state reset cannot be reconstructed and is never invented.
 
 ### Tests
 

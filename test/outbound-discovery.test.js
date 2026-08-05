@@ -10,7 +10,10 @@ const {
   routeForInbound,
   renderTrafficReport,
   sendReport,
-  targetReportKey
+  aggregateDailyBuckets,
+  completedReportPeriod,
+  currentReportPeriod,
+  migrateDailySentReports
 } = require('../bin/xray-sinffing.js');
 
 const baseTrack = {
@@ -139,19 +142,64 @@ test('a period without samples is reported as missing data instead of zero traff
   assert.doesNotMatch(report, /出口合计|用户合计|总: <code>0 B/);
 });
 
-test('scheduled previous periods and manual current periods use distinct keys', () => {
+test('scheduled periods use configured send boundaries', () => {
   const cfg = {
     reports: {
-      weekly: { reportPreviousPeriod: true },
-      monthly: { reportPreviousPeriod: true }
+      weekly: { weekday: 7, time: '07:10' },
+      monthly: { day: 5, time: '07:15' }
     }
   };
   const sunday = new Date(2026, 7, 2, 8, 0, 0);
   const august = new Date(2026, 7, 5, 8, 0, 0);
-  assert.equal(targetReportKey('weekly', cfg, sunday, false), '2026-W30');
-  assert.equal(targetReportKey('weekly', cfg, sunday, true), '2026-W31');
-  assert.equal(targetReportKey('monthly', cfg, august, false), '2026-07');
-  assert.equal(targetReportKey('monthly', cfg, august, true), '2026-08');
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(completedReportPeriod('weekly', cfg, sunday)).map(([k, v]) => [k, v instanceof Date ? v.toISOString().slice(0, 10) : v])),
+    { start: '2026-07-26', end: '2026-08-02', key: '2026-08-02' }
+  );
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(completedReportPeriod('monthly', cfg, august)).map(([k, v]) => [k, v instanceof Date ? v.toISOString().slice(0, 10) : v])),
+    { start: '2026-07-05', end: '2026-08-05', key: '2026-08-05' }
+  );
+  assert.equal(currentReportPeriod('monthly', cfg, august).key, '2026-08-06');
+});
+
+test('monthly and weekly totals are rebuilt from daily buckets inside send boundaries', () => {
+  const daily = (total) => ({
+    samples: 1,
+    firstSampleAt: '2026-08-04T00:00:00.000Z',
+    lastSampleAt: '2026-08-04T23:59:00.000Z',
+    byEmail: { 'user@example.invalid': { uplink: total, downlink: 0, total } },
+    byUser: { user: { uplink: total, downlink: 0, total } },
+    byOutbound: { direct: { uplink: total, downlink: 0, total } },
+    byUserOutbound: { user: { direct: { uplink: total, downlink: 0, total } } },
+    unattributedByUser: {},
+    warnings: []
+  });
+  const state = {
+    buckets: {
+      daily: {
+        '2026-07-04': daily(10),
+        '2026-07-05': daily(20),
+        '2026-08-04': daily(200),
+        '2026-08-05': daily(1000)
+      }
+    }
+  };
+  const period = { start: new Date(2026, 6, 5), end: new Date(2026, 7, 5), key: '2026-08-05' };
+  const bucket = aggregateDailyBuckets(state, period);
+  assert.equal(bucket.samples, 2);
+  assert.equal(bucket.byEmail['user@example.invalid'].total, 220);
+  assert.equal(bucket.byOutbound.direct.total, 220);
+});
+
+test('legacy daily sent markers migrate to the new ending boundary', () => {
+  assert.deepEqual(migrateDailySentReports({
+    '2026-07-31': 'sent-a',
+    '2026-12-31': 'sent-b',
+    invalid: 'ignored'
+  }), {
+    '2026-08-01': 'sent-a',
+    '2027-01-01': 'sent-b'
+  });
 });
 
 test('only successful scheduled delivery consumes the report marker', async () => {
@@ -185,19 +233,20 @@ test('only successful scheduled delivery consumes the report marker', async () =
   console.warn = () => {};
   global.fetch = async () => ({ ok: true });
   try {
-    assert.equal(await sendReport('daily', '2026-07-28', state, cfg, model, false, false), true);
-    assert.equal(state.sentReports.daily['2026-07-28'], undefined);
+    const period = { start: new Date(2026, 6, 28), end: new Date(2026, 6, 29), key: '2026-07-29' };
+    assert.equal(await sendReport('daily', period, state, cfg, model, false, false), true);
+    assert.equal(state.sentReports.daily['2026-07-29'], undefined);
 
-    assert.equal(await sendReport('daily', '2026-07-28', state, cfg, model, true, true), true);
-    assert.equal(state.sentReports.daily['2026-07-28'], undefined);
+    assert.equal(await sendReport('daily', period, state, cfg, model, true, true), true);
+    assert.equal(state.sentReports.daily['2026-07-29'], undefined);
 
-    assert.equal(await sendReport('daily', '2026-07-28', state, cfg, model, false, true), true);
-    assert.ok(state.sentReports.daily['2026-07-28']);
+    assert.equal(await sendReport('daily', period, state, cfg, model, false, true), true);
+    assert.ok(state.sentReports.daily['2026-07-29']);
 
-    delete state.sentReports.daily['2026-07-28'];
+    delete state.sentReports.daily['2026-07-29'];
     cfg.telegram = {};
-    assert.equal(await sendReport('daily', '2026-07-28', state, cfg, model, false, true), false);
-    assert.equal(state.sentReports.daily['2026-07-28'], undefined);
+    assert.equal(await sendReport('daily', period, state, cfg, model, false, true), false);
+    assert.equal(state.sentReports.daily['2026-07-29'], undefined);
   } finally {
     console.log = originalLog;
     console.warn = originalWarn;

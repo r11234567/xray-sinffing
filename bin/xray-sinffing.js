@@ -40,9 +40,9 @@ const DEFAULT_CONFIG = {
     excludeOutbounds: ['api', 'block']
   },
   reports: {
-    daily: { enabled: true, time: '00:05', reportPreviousPeriod: true },
-    weekly: { enabled: true, weekday: 1, time: '00:10', reportPreviousPeriod: true },
-    monthly: { enabled: true, day: 1, time: '00:15', reportPreviousPeriod: true }
+    daily: { enabled: true, time: '00:05' },
+    weekly: { enabled: true, weekday: 1, time: '00:10' },
+    monthly: { enabled: true, day: 1, time: '00:15' }
   }
 };
 
@@ -58,6 +58,7 @@ function usage() {
     '  --config PATH',
     '  --once                 Run one sample and exit; do not run the report scheduler',
     '  --report TYPE          Send a manual report without consuming its scheduled marker',
+    '  --completed            With --report, resend the latest completed schedule interval',
     '  --dry-run              Print reports instead of sending Telegram messages',
     '  --test-telegram        Send only a test message; never consume report markers'
   ].join('\n'));
@@ -68,6 +69,7 @@ function parseArgs(argv) {
     config: DEFAULT_CONFIG_PATH,
     once: false,
     report: null,
+    completed: false,
     dryRun: false,
     testTelegram: false
   };
@@ -77,6 +79,7 @@ function parseArgs(argv) {
     else if (a === '--config') args.config = argv[++i];
     else if (a === '--once') args.once = true;
     else if (a === '--report') args.report = argv[++i];
+    else if (a === '--completed') args.completed = true;
     else if (a === '--dry-run') args.dryRun = true;
     else if (a === '--test-telegram') args.testTelegram = true;
     else throw new Error('unknown argument: ' + a);
@@ -158,7 +161,7 @@ function loadConfig(file) {
 
 function initialState() {
   return {
-    version: 2,
+    version: 3,
     createdAt: new Date().toISOString(),
     lastSampleAt: null,
     lastStats: null,
@@ -168,6 +171,18 @@ function initialState() {
   };
 }
 
+function migrateDailySentReports(oldReports) {
+  const migrated = {};
+  for (const [key, sentAt] of Object.entries(oldReports || {})) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+    if (!match) continue;
+    const end = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    end.setDate(end.getDate() + 1);
+    migrated[dateKey(end)] = sentAt;
+  }
+  return migrated;
+}
+
 function loadState(cfg) {
   const state = readJson(cfg.runtime.statePath, initialState());
   if (Number(state.version || 1) < 2) {
@@ -175,6 +190,16 @@ function loadState(cfg) {
       for (const bucket of Object.values(state.buckets && state.buckets[type] || {})) bucket.warnings = [];
     }
     state.version = 2;
+  }
+  if (Number(state.version || 1) < 3) {
+    state.sentReports = {
+      daily: migrateDailySentReports(state.sentReports && state.sentReports.daily),
+      weekly: {},
+      monthly: {}
+    };
+    state.notes = state.notes || [];
+    state.notes.push({ at: new Date().toISOString(), message: 'report markers reset after switching to send-boundary aggregation' });
+    state.version = 3;
   }
   state.buckets = state.buckets || { daily: {}, weekly: {}, monthly: {} };
   state.buckets.daily = state.buckets.daily || {};
@@ -277,44 +302,69 @@ function dateKey(d) {
   return String(d.getFullYear()) + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
 }
 
-function monthKey(d) {
-  const p = (n) => String(n).padStart(2, '0');
-  return String(d.getFullYear()) + '-' + p(d.getMonth() + 1);
-}
-
-function isoWeekKey(d) {
-  const tmp = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  const dayNum = tmp.getUTCDay() || 7;
-  tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
-  const weekNo = Math.ceil((((tmp - yearStart) / 86400000) + 1) / 7);
-  return String(tmp.getUTCFullYear()) + '-W' + String(weekNo).padStart(2, '0');
-}
-
-function yesterday(d) {
-  const x = new Date(d.getTime());
-  x.setDate(x.getDate() - 1);
-  return x;
-}
-
-function previousMonth(d) {
-  const x = new Date(d.getTime());
-  x.setDate(1);
-  x.setMonth(x.getMonth() - 1);
-  return x;
-}
-
-function previousWeek(d) {
-  const x = new Date(d.getTime());
-  x.setDate(x.getDate() - 7);
-  return x;
-}
-
 function bucketKey(type, d) {
   if (type === 'daily') return dateKey(d);
-  if (type === 'weekly') return isoWeekKey(d);
-  if (type === 'monthly') return monthKey(d);
+  if (type === 'weekly' || type === 'monthly') return dateKey(d);
   throw new Error('unknown bucket type: ' + type);
+}
+
+function scheduledBoundary(type, cfg, now) {
+  const reportCfg = cfg.reports[type] || {};
+  const t = parseHHMM(reportCfg.time);
+  const end = new Date(now.getTime());
+  end.setHours(t.hour, t.minute, 0, 0);
+  if (type === 'daily') {
+    if (end > now) end.setDate(end.getDate() - 1);
+    return end;
+  }
+  if (type === 'weekly') {
+    const targetWeekday = Number(reportCfg.weekday || 1);
+    const currentWeekday = end.getDay() || 7;
+    end.setDate(end.getDate() - ((currentWeekday - targetWeekday + 7) % 7));
+    if (end > now) end.setDate(end.getDate() - 7);
+    return end;
+  }
+  if (type === 'monthly') {
+    const targetDay = Math.max(1, Math.min(31, Number(reportCfg.day || 1)));
+    const lastDay = new Date(end.getFullYear(), end.getMonth() + 1, 0).getDate();
+    end.setDate(Math.min(targetDay, lastDay));
+    if (end > now) {
+      end.setDate(1);
+      end.setMonth(end.getMonth() - 1);
+      const previousLastDay = new Date(end.getFullYear(), end.getMonth() + 1, 0).getDate();
+      end.setDate(Math.min(targetDay, previousLastDay));
+    }
+    return end;
+  }
+  throw new Error('unknown report type: ' + type);
+}
+
+function previousBoundary(type, end, cfg) {
+  const start = new Date(end.getTime());
+  if (type === 'daily') start.setDate(start.getDate() - 1);
+  else if (type === 'weekly') start.setDate(start.getDate() - 7);
+  else if (type === 'monthly') {
+    const targetDay = Math.max(1, Math.min(31, Number((cfg.reports.monthly || {}).day || 1)));
+    start.setDate(1);
+    start.setMonth(start.getMonth() - 1);
+    const lastDay = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
+    start.setDate(Math.min(targetDay, lastDay));
+  } else throw new Error('unknown report type: ' + type);
+  return start;
+}
+
+function completedReportPeriod(type, cfg, now) {
+  const end = scheduledBoundary(type, cfg, now);
+  const start = previousBoundary(type, end, cfg);
+  return { start, end, key: dateKey(end) };
+}
+
+function currentReportPeriod(type, cfg, now) {
+  const start = scheduledBoundary(type, cfg, now);
+  const end = new Date(now.getTime());
+  end.setHours(0, 0, 0, 0);
+  end.setDate(end.getDate() + 1);
+  return { start, end, key: dateKey(end) };
 }
 
 function makeBucket(key) {
@@ -335,6 +385,40 @@ function makeBucket(key) {
 function ensureBucket(state, type, key) {
   if (!state.buckets[type][key]) state.buckets[type][key] = makeBucket(key);
   return state.buckets[type][key];
+}
+
+function mergeTrafficMaps(target, source) {
+  for (const [key, traffic] of Object.entries(source || {})) {
+    addTraffic(ensureTraffic(target, key), traffic.uplink, traffic.downlink);
+  }
+}
+
+function mergeNestedTrafficMaps(target, source) {
+  for (const [outerKey, inner] of Object.entries(source || {})) {
+    if (!target[outerKey]) target[outerKey] = {};
+    mergeTrafficMaps(target[outerKey], inner);
+  }
+}
+
+function aggregateDailyBuckets(state, period) {
+  const bucket = makeBucket(period.key);
+  const startKey = dateKey(period.start);
+  const endKey = dateKey(period.end);
+  for (const [key, daily] of Object.entries(state.buckets.daily || {})) {
+    if (key < startKey || key >= endKey) continue;
+    if (daily.firstSampleAt && (!bucket.firstSampleAt || daily.firstSampleAt < bucket.firstSampleAt)) bucket.firstSampleAt = daily.firstSampleAt;
+    if (daily.lastSampleAt && (!bucket.lastSampleAt || daily.lastSampleAt > bucket.lastSampleAt)) bucket.lastSampleAt = daily.lastSampleAt;
+    bucket.samples += Number(daily.samples || 0);
+    mergeTrafficMaps(bucket.byEmail, daily.byEmail);
+    mergeTrafficMaps(bucket.byUser, daily.byUser);
+    mergeTrafficMaps(bucket.byOutbound, daily.byOutbound);
+    mergeNestedTrafficMaps(bucket.byUserOutbound, daily.byUserOutbound);
+    mergeTrafficMaps(bucket.unattributedByUser, daily.unattributedByUser);
+    for (const warning of daily.warnings || []) {
+      if (!bucket.warnings.includes(warning)) bucket.warnings.push(warning);
+    }
+  }
+  return bucket;
 }
 
 function normalizeOutboundEntries(raw) {
@@ -636,15 +720,8 @@ function applyDeltas(state, deltas, cfg, model) {
   const now = new Date();
   const sampledAt = now.toISOString();
   const items = trafficFromDeltas(deltas);
-  const keys = {
-    daily: bucketKey('daily', now),
-    weekly: bucketKey('weekly', now),
-    monthly: bucketKey('monthly', now)
-  };
-  for (const type of Object.keys(keys)) {
-    const bucket = ensureBucket(state, type, keys[type]);
-    applyTrafficToBucket(bucket, items, cfg, model, sampledAt);
-  }
+  const bucket = ensureBucket(state, 'daily', bucketKey('daily', now));
+  applyTrafficToBucket(bucket, items, cfg, model, sampledAt);
   state.lastSampleAt = sampledAt;
 }
 
@@ -668,9 +745,7 @@ function rebuildBucketAttribution(bucket, cfg, model) {
 }
 
 function rebuildStateAttribution(state, cfg, model) {
-  for (const type of ['daily', 'weekly', 'monthly']) {
-    for (const bucket of Object.values(state.buckets[type] || {})) rebuildBucketAttribution(bucket, cfg, model);
-  }
+  for (const bucket of Object.values(state.buckets.daily || {})) rebuildBucketAttribution(bucket, cfg, model);
 }
 
 function parseHHMM(value) {
@@ -679,45 +754,13 @@ function parseHHMM(value) {
   return { hour: Number(m[1]), minute: Number(m[2]) };
 }
 
-function afterTime(now, hhmm) {
-  const t = parseHHMM(hhmm);
-  return now.getHours() > t.hour || (now.getHours() === t.hour && now.getMinutes() >= t.minute);
-}
-
-function targetReportKey(type, cfg, now, forceCurrent) {
-  const reportCfg = cfg.reports[type] || {};
-  if (type === 'daily') {
-    const d = reportCfg.reportPreviousPeriod && !forceCurrent ? yesterday(now) : now;
-    return bucketKey(type, d);
-  }
-  if (type === 'weekly') {
-    const d = reportCfg.reportPreviousPeriod && !forceCurrent ? previousWeek(now) : now;
-    return bucketKey(type, d);
-  }
-  if (type === 'monthly') {
-    const d = reportCfg.reportPreviousPeriod && !forceCurrent ? previousMonth(now) : now;
-    return bucketKey(type, d);
-  }
-  throw new Error('unknown report type: ' + type);
-}
-
 function dueReportTypes(cfg, state, now) {
   const out = [];
-  const daily = cfg.reports.daily || {};
-  if (daily.enabled && afterTime(now, daily.time)) {
-    const key = targetReportKey('daily', cfg, now, false);
-    if (!state.sentReports.daily[key]) out.push({ type: 'daily', key });
-  }
-  const weekly = cfg.reports.weekly || {};
-  const weekday = now.getDay() || 7;
-  if (weekly.enabled && weekday === Number(weekly.weekday || 1) && afterTime(now, weekly.time)) {
-    const key = targetReportKey('weekly', cfg, now, false);
-    if (!state.sentReports.weekly[key]) out.push({ type: 'weekly', key });
-  }
-  const monthly = cfg.reports.monthly || {};
-  if (monthly.enabled && now.getDate() === Number(monthly.day || 1) && afterTime(now, monthly.time)) {
-    const key = targetReportKey('monthly', cfg, now, false);
-    if (!state.sentReports.monthly[key]) out.push({ type: 'monthly', key });
+  for (const type of ['daily', 'weekly', 'monthly']) {
+    const reportCfg = cfg.reports[type] || {};
+    if (!reportCfg.enabled) continue;
+    const period = completedReportPeriod(type, cfg, now);
+    if (!state.sentReports[type][period.key]) out.push({ type, period });
   }
   return out;
 }
@@ -937,6 +980,11 @@ function outboundName(tag, model) {
   return found ? found.name : tag;
 }
 
+function periodLabel(type, period) {
+  if (type === 'daily') return dateKey(period.start);
+  return dateKey(period.start) + ' → ' + dateKey(period.end);
+}
+
 function renderTrafficReport(type, key, bucket, cfg, model) {
   const CONFIG = templateConfig(cfg);
   const nodeName = cfg.komari.nodeName || os.hostname();
@@ -962,7 +1010,7 @@ function renderTrafficReport(type, key, bucket, cfg, model) {
     msg += '采样: <code>0</code>';
     msg += '</blockquote>\n\n';
     msg += '<b>无可用采样数据</b>\n';
-    msg += '<blockquote>该周期没有保存任何采样，无法计算实际流量，因此不会将缺失数据报告为 0 B。请检查安装时间、状态重置时间和 reportPreviousPeriod 设置。</blockquote>\n';
+    msg += '<blockquote>该发送区间没有保存任何日报采样，无法计算实际流量，因此不会将缺失数据报告为 0 B。请检查安装时间、状态重置时间和报告发送日期。</blockquote>\n';
     msg += '<code>' + formatTime(new Date().toISOString()) + '</code>';
     return { msg, buttons };
   }
@@ -1028,11 +1076,12 @@ function renderTrafficReport(type, key, bucket, cfg, model) {
   return { msg, buttons };
 }
 
-async function sendReport(type, key, state, cfg, model, dryRun, recordSent = false) {
-  const bucket = state.buckets[type][key] || makeBucket(key);
-  const rendered = renderTrafficReport(type, key, bucket, cfg, model);
+async function sendReport(type, period, state, cfg, model, dryRun, recordSent = false) {
+  const bucket = aggregateDailyBuckets(state, period);
+  rebuildBucketAttribution(bucket, cfg, model);
+  const rendered = renderTrafficReport(type, periodLabel(type, period), bucket, cfg, model);
   const delivered = await sendLongMessage(cfg, rendered.msg, rendered.buttons, dryRun);
-  if (recordSent && !dryRun && delivered) state.sentReports[type][key] = new Date().toISOString();
+  if (recordSent && !dryRun && delivered) state.sentReports[type][period.key] = new Date().toISOString();
   return delivered;
 }
 
@@ -1090,13 +1139,13 @@ async function sampleOnce(configPath, options) {
   if (options.report) {
     const types = options.report === 'all' ? ['daily', 'weekly', 'monthly'] : [options.report];
     for (const type of types) {
-      const key = targetReportKey(type, cfg, now, true);
-      await sendReport(type, key, state, cfg, model, options.dryRun, false);
+      const period = options.completed ? completedReportPeriod(type, cfg, now) : currentReportPeriod(type, cfg, now);
+      await sendReport(type, period, state, cfg, model, options.dryRun, options.completed);
     }
     writeJsonAtomic(cfg.runtime.statePath, state);
   } else if (!options.once) {
     for (const item of dueReportTypes(cfg, state, now)) {
-      await sendReport(item.type, item.key, state, cfg, model, options.dryRun, true);
+      await sendReport(item.type, item.period, state, cfg, model, options.dryRun, true);
     }
     writeJsonAtomic(cfg.runtime.statePath, state);
   }
@@ -1130,6 +1179,7 @@ async function main() {
     usage();
     return;
   }
+  if (args.completed && !args.report) throw new Error('--completed requires --report');
   if (!commandExists(loadConfig(args.config).xray.binary)) {
     console.warn('WARN xray binary is not executable at configured path');
   }
@@ -1156,5 +1206,8 @@ module.exports = {
   routeForInbound,
   renderTrafficReport,
   sendReport,
-  targetReportKey
+  aggregateDailyBuckets,
+  completedReportPeriod,
+  currentReportPeriod,
+  migrateDailySentReports
 };
