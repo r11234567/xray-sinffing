@@ -46,7 +46,18 @@ bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/instal
 
 月报的对应命令是 `update --no-patch-xray --resend-monthly`。恢复命令会暂时停止 reporter，按上次发送边界到本次发送边界重新汇总日报，Telegram 成功后写入该完整区间的调度标记，再启动服务。普通 `--report` 和测试命令仍不会写标记。
 
-`install` 在已安装机器上重复执行也会覆盖程序为最新版；`update` 是语义更明确的同类操作。两者默认都会检查并补齐 Xray Stats/API、所有 client policy level 和配置读取权限，然后重启服务。Xray 配置和 `/etc/xray-sinffing` 目录规范为 `755`，JSON 配置文件规范为 `644`，普通用户可读但不可写。只更新 reporter 可加 `--no-patch-xray`。程序不会创建无人值守的定时自动更新任务。
+`install` 在已安装机器上重复执行也会覆盖程序为最新版；`update` 是语义更明确的同类操作。两者默认都会检查并补齐 Xray Stats/API、所有 client policy level 和配置读取权限，然后重启服务。安装器保留 Xray 配置已有的非 root 属组，将 reporter 用户加入该组，并补齐组读取/目录遍历权限；已有的 `750 root:xray` 目录和 `640 root:xray` 文件保持原权限。root 属组的配置会改用 Xray 服务用户组（Xray 以 root 运行时使用 reporter 组），不会把 reporter 加入 root 组。`/etc/xray-sinffing` 目录仍使用 `755`、其 JSON 配置使用 `644`。只更新 reporter 并修复读权限可加 `--no-patch-xray`，这不会修改 Xray JSON 或重启 Xray。程序不会创建无人值守的定时自动更新任务。
+
+如果日报提示 `EACCES: permission denied, stat '/usr/local/etc/xray/config.json'`，先在每台受影响机器执行下面的更新。更新保留 Telegram 配置与历史流量，不需要卸载或重置状态：
+
+```bash
+bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/install.sh)" @ update --no-patch-xray
+sudo -u xraystat node /opt/xray-sinffing/bin/xray-sinffing.js \
+  --config /etc/xray-sinffing/config.json --check-config
+sudo systemctl status xray-sinffing.service --no-pager
+```
+
+`--check-config` 使用当前用户调用 Xray 解析完整配置（含 `-confdir` 分片），成功输出 `Xray config OK`，失败返回非零状态；它不会采样、写入流量状态或发送 Telegram。安装器和 systemd 启动前都执行这项检查。不要用 `sudo node ... --check-config` 验证 reporter 权限：root 能读取不代表 `xraystat` 能读取。后续如果更改配置属组或服务用户，需要重新运行更新；若仍失败，使用 `namei -l /usr/local/etc/xray/config.json` 检查父目录权限，并查看 `journalctl -u xray-sinffing.service -n 30 --no-pager`。
 
 如果旧报告曾在“Xray 配置不可读”或“某个 policy level 未启用 user Stats”期间累计，旧状态缺少一侧计数器，无法事后还原。使用下面的命令可在更新成功后备份旧状态，并从新的 Xray 计数器基线开始：
 
@@ -273,7 +284,17 @@ bash -c "$(curl -fsSL https://github.com/r11234567/xray-sinffing/raw/main/instal
 
 Use `--resend-monthly` for the latest completed monthly interval. Recovery stops the reporter, rebuilds the interval from daily buckets, records the completed boundary only after Telegram accepts the report, and restarts the service. Ordinary manual and test commands still do not consume scheduler markers.
 
-Running `install` again also refreshes the application. `update` is the explicit equivalent. Both verify Xray Stats/API, client policy levels, and reporter read access by default. Xray configuration directories and `/etc/xray-sinffing` are normalized to mode `755`; their JSON configuration files use mode `644`, making them readable but not writable by ordinary users. Add `--no-patch-xray` to refresh only the reporter. No unattended periodic update timer is installed.
+Running `install` again also refreshes the application. `update` is the explicit equivalent. Both verify Xray Stats/API, client policy levels, and reporter read access by default. The installer keeps existing non-root Xray config groups, adds the reporter to them, and grants group read/directory traversal access. Existing `750 root:xray` directories and `640 root:xray` files keep their permissions. Root-group configs use the Xray service user's group, or the reporter group when Xray runs as root; the reporter is never added to the root group. `/etc/xray-sinffing` remains mode `755` with mode `644` JSON files. Add `--no-patch-xray` to update the reporter and repair read access without changing Xray JSON or restarting Xray. No unattended periodic update timer is installed.
+
+For an `EACCES` config error, run `update --no-patch-xray` on each affected machine. It preserves Telegram settings and traffic history. Then verify access as the service user:
+
+```bash
+sudo -u xraystat node /opt/xray-sinffing/bin/xray-sinffing.js \
+  --config /etc/xray-sinffing/config.json --check-config
+sudo systemctl status xray-sinffing.service --no-pager
+```
+
+`--check-config` parses the full Xray config, including confdir fragments, without sampling, saving state, or sending Telegram. Both the installer and the systemd pre-start check use it. A successful root check does not prove the reporter has access: use the configured runtime user (default `xraystat`). Rerun the update after changing config groups or service users. For remaining errors, inspect parent permissions with `namei -l` and the reporter journal.
 
 If state was accumulated while the Xray configuration was unreadable or a client policy level lacked user Stats, the missing counter dimension cannot be reconstructed. Use `update --reset-state` to back up the old state and establish a clean baseline. Backups are kept as `/var/lib/xray-sinffing/traffic-state.json.bak-reset-TIMESTAMP`.
 

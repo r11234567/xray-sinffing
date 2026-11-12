@@ -342,21 +342,37 @@ grant_xray_config_access() {
       usermod -a -G "$XRAY_ACCESS_GROUP" "$RUN_USER"
     fi
   fi
-  chgrp "$XRAY_ACCESS_GROUP" "$XRAY_CONFIG_DIR"
-  chmod 0755 "$XRAY_CONFIG_DIR"
+  # Keep an existing non-root config group (Xray installers commonly restore
+  # root:xray 0750/0640). Group membership survives those permission resets.
+  grant_xray_path_access "$XRAY_CONFIG_DIR" g+rx
   if [ -d "$XRAY_CONFIG_PATH" ]; then
     while IFS= read -r -d '' config_part; do
-      chgrp "$XRAY_ACCESS_GROUP" "$config_part"
-      chmod 0644 "$config_part"
-    done < <(find "$XRAY_CONFIG_PATH" -maxdepth 1 -type f -name '*.json' -print0)
+      grant_xray_path_access "$config_part" g+r
+    done < <(find -L "$XRAY_CONFIG_PATH" -maxdepth 1 -type f -name '*.json' -print0)
   else
-    chgrp "$XRAY_ACCESS_GROUP" "$XRAY_CONFIG_PATH"
-    chmod 0644 "$XRAY_CONFIG_PATH"
+    grant_xray_path_access "$XRAY_CONFIG_PATH" g+r
   fi
-  if command -v runuser >/dev/null 2>&1 && ! runuser -u "$RUN_USER" -- test -r "$XRAY_CONFIG_PATH"; then
-    echo "Runtime user $RUN_USER still cannot read Xray config: $XRAY_CONFIG_PATH" >&2
+  if ! command -v runuser >/dev/null 2>&1; then
+    echo "runuser is required to verify Xray config access as $RUN_USER" >&2
     exit 1
   fi
+  # Verify merged config parsing, including every confdir fragment, rather than
+  # only testing whether the top-level directory has its read bit set.
+  runuser -u "$RUN_USER" -- node "$APP_DIR/bin/xray-sinffing.js" \
+    --config "$CONFIG_FILE" --check-config
+}
+
+grant_xray_path_access() {
+  local target="$1" mode="$2" access_group
+  access_group="$(stat -Lc '%G' -- "$target")"
+  if [ "$access_group" = "root" ]; then
+    access_group="$XRAY_ACCESS_GROUP"
+    chgrp "$access_group" "$target"
+  fi
+  if ! id -nG "$RUN_USER" | tr ' ' '\n' | grep -Fxq "$access_group"; then
+    usermod -a -G "$access_group" "$RUN_USER"
+  fi
+  chmod "$mode" "$target"
 }
 
 grant_xray_config_access

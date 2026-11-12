@@ -1,6 +1,6 @@
 {
   "name": "xray-sinffing",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Xray traffic reporter with Telegram/Komari-style notifications",
   "private": true,
   "type": "commonjs",

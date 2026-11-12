@@ -60,6 +60,7 @@ function usage() {
     '  --report TYPE          Send a manual report without consuming its scheduled marker',
     '  --completed            With --report, resend the latest completed schedule interval',
     '  --dry-run              Print reports instead of sending Telegram messages',
+    '  --check-config         Validate Xray config access; do not sample, save state, or send messages',
     '  --test-telegram        Send only a test message; never consume report markers'
   ].join('\n'));
 }
@@ -71,6 +72,7 @@ function parseArgs(argv) {
     report: null,
     completed: false,
     dryRun: false,
+    checkConfig: false,
     testTelegram: false
   };
   for (let i = 2; i < argv.length; i += 1) {
@@ -81,6 +83,7 @@ function parseArgs(argv) {
     else if (a === '--report') args.report = argv[++i];
     else if (a === '--completed') args.completed = true;
     else if (a === '--dry-run') args.dryRun = true;
+    else if (a === '--check-config') args.checkConfig = true;
     else if (a === '--test-telegram') args.testTelegram = true;
     else throw new Error('unknown argument: ' + a);
   }
@@ -1117,6 +1120,7 @@ async function sampleOnce(configPath, options) {
   }
   const state = loadState(cfg);
   const model = buildXrayModel(cfg);
+  if (model.configError) console.error('Xray config error: ' + model.configError);
   rebuildStateAttribution(state, cfg, model);
   const current = queryStats(cfg);
 
@@ -1177,6 +1181,16 @@ async function main() {
   const args = parseArgs(process.argv);
   if (args.help) {
     usage();
+    return;
+  }
+  if (args.checkConfig) {
+    if (args.once || args.report || args.completed || args.testTelegram || args.dryRun) {
+      throw new Error('--check-config cannot be combined with sampling or report options');
+    }
+    const cfg = loadConfig(args.config);
+    const model = buildXrayModel(cfg);
+    if (model.configError) throw new Error(model.configError);
+    console.log('Xray config OK: ' + model.knownUsers.length + ' users, ' + model.knownEmails.length + ' emails, ' + model.trackedOutbounds.length + ' outbounds');
     return;
   }
   if (args.completed && !args.report) throw new Error('--completed requires --report');
